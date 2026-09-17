@@ -1,22 +1,19 @@
 import Link from "next/link";
-import { requireSession, isCeo } from "@/lib/permissions";
+import { requireSession } from "@/lib/permissions";
 import { UNSCOPED, getOrgStats } from "@/lib/queries/dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileBarChart, Users, UsersRound, FolderKanban, Video, Building2 } from "lucide-react";
+import { FileBarChart, Users, UsersRound, Video, Building2 } from "lucide-react";
 
 export default async function ReportsPage() {
-  const session = await requireSession();
-  const ceo = isCeo(session);
-  const scope = UNSCOPED; // every manager sees the full org (CEO parity), per explicit product decision
-  const stats = await getOrgStats(scope);
+  await requireSession();
+  const stats = await getOrgStats(UNSCOPED);
 
   const reports = [
     { title: "Individual Performance Report", description: "Score history, dimension breakdown, manager opinions for one person.", icon: Users, href: "/people" },
-    { title: "Team Performance Report", description: "Team score, coverage, attendance, and dimension trends.", icon: UsersRound, href: "/teams" },
-    { title: "Project Report", description: "Delivery health, evaluations, and deliverable status by project.", icon: FolderKanban, href: "/projects" },
+    { title: "Team / Project Report", description: "Team score, coverage, attendance, deliverables, and dimension trends.", icon: UsersRound, href: "/teams" },
     { title: "Demo Report", description: "Per-demo results, consensus, and AI highlights.", icon: Video, href: "/demos" },
-    ...(ceo ? [{ title: "Executive Report", description: "Organization-wide performance and AI executive summary.", icon: Building2, href: "/dashboard" }] : []),
+    { title: "Organization Report", description: "Organization-wide performance, ranking, and question analysis.", icon: Building2, href: "/dashboard" },
   ];
 
   return (

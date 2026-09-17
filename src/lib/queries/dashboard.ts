@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { computeConfidence, computeTrend } from "@/lib/scoring";
+import { averageScore } from "@/lib/scoring";
+import { sortRows } from "@/lib/sort";
 
 export interface Scope {
   teamIds: string[] | null; // null = unscoped (CEO)
@@ -58,7 +59,7 @@ export async function getOrgStats(scope: Scope) {
     }),
   ]);
 
-  const avgScore = evaluations.length ? evaluations.reduce((s, e) => s + (e.score ?? 0), 0) / evaluations.length : 0;
+  const avgScore = averageScore(evaluations.map((e) => e.score));
   const evaluatedPeople = new Set(evaluations.map((e) => e.developerId)).size;
   const evaluationCoverage = activePeople > 0 ? (evaluatedPeople / activePeople) * 100 : 0;
   const attendanceRate = attendance.length
@@ -87,6 +88,7 @@ export async function getOrgStats(scope: Scope) {
     activeProjects,
     activeTeams,
     demosThisMonth,
+    totalEvaluations: evaluations.length,
     avgScore,
     attendanceRate,
     evaluationCoverage,
@@ -95,46 +97,68 @@ export async function getOrgStats(scope: Scope) {
   };
 }
 
-export async function getScoreTrendSeries(scope: Scope, months = 6) {
-  const now = new Date();
-  const series: { label: string; score: number }[] = [];
-  for (let i = months - 1; i >= 0; i--) {
-    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
-    const evaluations = await prisma.evaluation.findMany({
-      where: {
-        status: "COMPLETED",
-        demo: { date: { gte: start, lt: end } },
-        ...(scope.projectIds ? { projectId: { in: scope.projectIds } } : {}),
-      },
-      select: { score: true },
-    });
-    const avg = evaluations.length ? evaluations.reduce((s, e) => s + (e.score ?? 0), 0) / evaluations.length : 0;
-    series.push({ label: start.toLocaleDateString("en-US", { month: "short" }), score: Math.round(avg) });
+// System evaluation baseline: no real evaluation data exists before this
+// month, so the trend must never plot fabricated zero-scores for it.
+export const EVALUATION_BASELINE = new Date(2026, 8, 1); // September 2026
+
+export async function getScoreTrendSeries(scope: Scope) {
+  const evaluations = await prisma.evaluation.findMany({
+    where: {
+      status: "COMPLETED",
+      demo: { date: { gte: EVALUATION_BASELINE } },
+      ...(scope.projectIds ? { projectId: { in: scope.projectIds } } : {}),
+    },
+    select: { score: true, demo: { select: { date: true } } },
+  });
+
+  // Group by calendar month — only months with at least one real evaluation
+  // are included, so no month is invented or zero-filled.
+  const byMonth = new Map<string, { sum: number; count: number; monthStart: Date }>();
+  for (const e of evaluations) {
+    const d = e.demo.date;
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    const entry = byMonth.get(key) ?? { sum: 0, count: 0, monthStart: new Date(d.getFullYear(), d.getMonth(), 1) };
+    entry.sum += e.score ?? 0;
+    entry.count += 1;
+    byMonth.set(key, entry);
   }
-  return series;
+
+  return [...byMonth.values()]
+    .sort((a, b) => a.monthStart.getTime() - b.monthStart.getTime())
+    .map((m) => ({
+      label: m.monthStart.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+      score: Math.round(m.sum / m.count),
+    }));
 }
 
-export async function getTeamComparison(scope: Scope) {
-  const teams = await prisma.team.findMany({ where: scope.teamIds ? { id: { in: scope.teamIds } } : {} });
+export async function getTeamComparison(scope: Scope, opts: { sort?: string; dir?: string } = {}) {
+  const teams = await prisma.team.findMany({
+    where: scope.teamIds ? { id: { in: scope.teamIds } } : {},
+    include: { members: true, managers: { include: { user: true } } },
+  });
   const results = [];
   for (const team of teams) {
     const evaluations = await prisma.evaluation.findMany({
       where: { status: "COMPLETED", demo: { teams: { some: { teamId: team.id } } } },
       include: { answers: { include: { criterion: true } } },
     });
+    const base = {
+      id: team.id,
+      name: team.name, // "Team / Project" — one concept, see section 7/8
+      managers: team.managers.map((m) => m.user.name),
+      engineerCount: team.members.length,
+    };
     if (evaluations.length === 0) {
-      results.push({ id: team.id, name: team.name, score: 0, delivery: 0, ux: 0, ai: 0, business: 0, evaluationCount: 0 });
+      results.push({ ...base, score: 0, delivery: 0, ux: 0, ai: 0, business: 0, evaluationCount: 0 });
       continue;
     }
-    const avgScore = evaluations.reduce((s, e) => s + (e.score ?? 0), 0) / evaluations.length;
+    const avgScore = averageScore(evaluations.map((e) => e.score));
     const dim = (name: string) => {
       const answers = evaluations.flatMap((e) => e.answers.filter((a) => a.criterion.dimension === name));
       return answers.length ? (answers.filter((a) => a.answer).length / answers.length) * 100 : 0;
     };
     results.push({
-      id: team.id,
-      name: team.name,
+      ...base,
       score: Math.round(avgScore),
       delivery: Math.round(dim("Delivery")),
       ux: Math.round(dim("UX")),
@@ -143,79 +167,7 @@ export async function getTeamComparison(scope: Scope) {
       evaluationCount: evaluations.length,
     });
   }
-  return results.sort((a, b) => b.score - a.score);
-}
-
-export async function getTopPerformers(scope: Scope, limit = 5) {
-  const people = await prisma.user.findMany({
-    where: { role: "DEVELOPER", ...(scope.personIds ? { id: { in: scope.personIds } } : {}) },
-    include: { evaluationsReceived: { where: { status: "COMPLETED" }, select: { score: true } } },
-  });
-
-  const withScores = people
-    .filter((p) => p.evaluationsReceived.length > 0)
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      title: p.title,
-      avgScore: p.evaluationsReceived.reduce((s, e) => s + (e.score ?? 0), 0) / p.evaluationsReceived.length,
-      evaluationCount: p.evaluationsReceived.length,
-    }))
-    .sort((a, b) => b.avgScore - a.avgScore)
-    .slice(0, limit);
-
-  return withScores.map((p) => ({ ...p, confidence: computeConfidence(p.evaluationCount, 1) }));
-}
-
-export async function getNeedsAttention(scope: Scope, limit = 5) {
-  const alerts = await prisma.aiAlert.findMany({
-    where: {
-      status: "ACTIVE",
-      subjectType: "PERSON",
-      severity: { in: ["MEDIUM", "HIGH"] },
-      ...(scope.personIds ? { subjectId: { in: scope.personIds } } : {}),
-    },
-    orderBy: { severity: "desc" },
-  });
-
-  const bySubject = new Map<string, typeof alerts>();
-  for (const a of alerts) {
-    const list = bySubject.get(a.subjectId) ?? [];
-    list.push(a);
-    bySubject.set(a.subjectId, list);
-  }
-
-  const people = await prisma.user.findMany({ where: { id: { in: [...bySubject.keys()] } } });
-  const results = people.map((p) => {
-    const personAlerts = bySubject.get(p.id) ?? [];
-    const highest = personAlerts.some((a) => a.severity === "HIGH") ? "HIGH" : "MEDIUM";
-    return { id: p.id, name: p.name, title: p.title, severity: highest, alertCount: personAlerts.length, topAlert: personAlerts[0] };
-  });
-
-  return results
-    .sort((a, b) => (a.severity === b.severity ? b.alertCount - a.alertCount : a.severity === "HIGH" ? -1 : 1))
-    .slice(0, limit);
-}
-
-export async function getExecutiveSummary(teamId?: string) {
-  const insight = await prisma.aiInsight.findFirst({
-    where: teamId ? { subjectType: "TEAM", subjectId: teamId } : { subjectType: "ORGANIZATION" },
-    orderBy: { createdAt: "desc" },
-  });
-  return insight;
-}
-
-export async function getUpcomingDemos(scope: Scope, limit = 5) {
-  return prisma.demo.findMany({
-    where: {
-      status: "SCHEDULED",
-      date: { gte: new Date() },
-      ...(scope.teamIds ? { teams: { some: { teamId: { in: scope.teamIds } } } } : {}),
-    },
-    include: { projects: { include: { project: true } }, teams: { include: { team: true } }, hostManager: true },
-    orderBy: { date: "asc" },
-    take: limit,
-  });
+  return sortRows(results, opts.sort, opts.dir, "score", "desc");
 }
 
 export async function getPendingEvaluations(managerId: string) {
@@ -249,5 +201,3 @@ export async function getPendingEvaluations(managerId: string) {
   }
   return results.sort((a, b) => b.date.getTime() - a.date.getTime());
 }
-
-export { computeTrend };

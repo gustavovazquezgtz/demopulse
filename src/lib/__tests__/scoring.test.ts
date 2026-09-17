@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeEvaluationScore, computeTrend, computeConfidence, computeAgreement } from "@/lib/scoring";
+import { computeEvaluationScore, computeTrend, computeConfidence, computeAgreement, averageScore, dedupeScoresByDemo } from "@/lib/scoring";
 
 describe("computeEvaluationScore", () => {
   it("computes (yes / total) * 100 for equal weights", () => {
@@ -43,6 +43,20 @@ describe("computeTrend", () => {
   it("reports INSUFFICIENT_DATA with fewer than two data points", () => {
     expect(computeTrend([]).trend).toBe("INSUFFICIENT_DATA");
     expect(computeTrend([80]).trend).toBe("INSUFFICIENT_DATA");
+  });
+
+  it("still exposes the known current score for a single demo session, even though trend can't be computed yet", () => {
+    // A developer evaluated for only one demo has a perfectly real current
+    // score — there's just no history to compare it against. Rankings and
+    // score columns must not blank this out to null.
+    const result = computeTrend([88]);
+    expect(result.trend).toBe("INSUFFICIENT_DATA");
+    expect(result.current).toBe(88);
+    expect(result.previous).toBeNull();
+  });
+
+  it("returns current: null only when there are truly zero data points", () => {
+    expect(computeTrend([]).current).toBeNull();
   });
 
   it("can still compare two single-point windows when exactly two data points exist", () => {
@@ -97,5 +111,50 @@ describe("computeAgreement", () => {
   it("flags LOW agreement for widely diverging manager scores (section 36)", () => {
     const result = computeAgreement([100, 50]);
     expect(result.agreement).toBe("LOW");
+  });
+});
+
+describe("averageScore — single aggregation rule for every Score in the app", () => {
+  it("is the simple arithmetic mean of valid scores", () => {
+    expect(averageScore([80, 90, 100])).toBeCloseTo(90, 5);
+  });
+
+  it("ignores null/undefined entries rather than treating them as zero", () => {
+    expect(averageScore([80, null, 100, undefined])).toBeCloseTo(90, 5);
+  });
+
+  it("returns 0 for an empty or all-null list instead of NaN (empty-state safe)", () => {
+    expect(averageScore([])).toBe(0);
+    expect(averageScore([null, null])).toBe(0);
+  });
+
+  it("matches manual sum/count for a representative multi-evaluator scenario (Test 2 from spec)", () => {
+    // Gustavo -> Mariano = 88, Ivan -> Mariano = 91
+    const scores = [88, 91];
+    expect(averageScore(scores)).toBeCloseTo((88 + 91) / 2, 5);
+  });
+});
+
+describe("dedupeScoresByDemo — one chronological data point per demo", () => {
+  it("averages multiple evaluators' scores for the same demo into a single point", () => {
+    const evaluations = [
+      { demoId: "d1", score: 80, demo: { date: new Date("2026-09-01") } },
+      { demoId: "d1", score: 100, demo: { date: new Date("2026-09-01") } }, // second evaluator, same demo
+      { demoId: "d2", score: 60, demo: { date: new Date("2026-09-08") } },
+    ];
+    const result = dedupeScoresByDemo(evaluations);
+    expect(result).toHaveLength(2);
+    expect(result[0].score).toBeCloseTo(90, 5); // (80+100)/2
+    expect(result[1].score).toBe(60);
+  });
+
+  it("sorts chronologically by demo date regardless of input order", () => {
+    const evaluations = [
+      { demoId: "later", score: 50, demo: { date: new Date("2026-09-20") } },
+      { demoId: "earlier", score: 90, demo: { date: new Date("2026-09-01") } },
+    ];
+    const result = dedupeScoresByDemo(evaluations);
+    expect(result[0].score).toBe(90);
+    expect(result[1].score).toBe(50);
   });
 });

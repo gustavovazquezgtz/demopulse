@@ -1,215 +1,229 @@
 import Link from "next/link";
-import { requireSession, isCeo } from "@/lib/permissions";
-import {
-  UNSCOPED,
-  getOrgStats,
-  getScoreTrendSeries,
-  getTeamComparison,
-  getTopPerformers,
-  getNeedsAttention,
-  getExecutiveSummary,
-  getUpcomingDemos,
-  getPendingEvaluations,
-} from "@/lib/queries/dashboard";
+import { requireSession } from "@/lib/permissions";
+import { UNSCOPED, getOrgStats, getScoreTrendSeries, getTeamComparison } from "@/lib/queries/dashboard";
+import { getRanking } from "@/lib/queries/ranking";
+import { getQuestionAnalysis } from "@/lib/queries/evaluations";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { ScoreTrendChart } from "@/components/charts/score-trend-chart";
-import { TeamComparisonChart } from "@/components/charts/team-comparison-chart";
-import { TopPerformersList } from "@/components/dashboard/top-performers-list";
-import { NeedsAttentionList } from "@/components/dashboard/needs-attention-list";
-import { Users, FolderKanban, UsersRound, Video, Gauge, ClipboardCheck, Sparkles, CalendarClock } from "lucide-react";
+import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
+import { SortableHeader } from "@/components/ui/sortable-header";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Gauge, ClipboardCheck, UsersRound, Users } from "lucide-react";
 import { formatScore } from "@/lib/utils";
 
-export default async function DashboardPage() {
-  const session = await requireSession();
-  const ceo = isCeo(session);
-  const scope = UNSCOPED; // every manager sees the full org (CEO parity), per explicit product decision
+interface SearchParams {
+  teamSort?: string;
+  teamDir?: string;
+  rankSort?: string;
+  rankDir?: string;
+  qSort?: string;
+  qDir?: string;
+}
 
-  const [stats, trend, teamComparison, topPerformers, needsAttention, execSummary, upcoming, pending] = await Promise.all([
-    getOrgStats(scope),
-    getScoreTrendSeries(scope),
-    getTeamComparison(scope),
-    getTopPerformers(scope, 5),
-    getNeedsAttention(scope, 5),
-    getExecutiveSummary(),
-    getUpcomingDemos(scope, 5),
-    ceo ? Promise.resolve([]) : getPendingEvaluations(session.user.id),
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  await requireSession();
+  const { teamSort, teamDir, rankSort, rankDir, qSort, qDir } = await searchParams;
+
+  const [stats, trend, teams, ranking, questions] = await Promise.all([
+    getOrgStats(UNSCOPED),
+    getScoreTrendSeries(UNSCOPED),
+    getTeamComparison(UNSCOPED, { sort: teamSort, dir: teamDir }),
+    getRanking(UNSCOPED, { sort: rankSort, dir: rankDir }),
+    getQuestionAnalysis(qSort, qDir),
   ]);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">
-            {ceo ? "Executive Dashboard" : `Welcome back, ${session.user.name.split(" ")[0]}`}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {ceo ? "Organization-wide performance and delivery intelligence." : "Here's what's happening across your teams."}
-          </p>
+          <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Organization-wide performance — visible to every manager.</p>
         </div>
         <Button asChild>
           <Link href="/demos/new">Create Demo</Link>
         </Button>
       </div>
 
+      {/* Company Overview */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard label="Active People" value={stats.activePeople} icon={Users} />
-        <StatCard label="Active Projects" value={stats.activeProjects} icon={FolderKanban} />
-        <StatCard label="Active Teams" value={stats.activeTeams} icon={UsersRound} />
-        <StatCard label="Demos This Month" value={stats.demosThisMonth} icon={Video} />
-        <StatCard label="Average Score" value={formatScore(stats.avgScore)} icon={Gauge} tone={stats.avgScore >= 75 ? "positive" : "warning"} />
-        <StatCard label="Attendance" value={Math.round(stats.attendanceRate)} suffix="%" icon={CalendarClock} />
-        <StatCard label="Evaluation Coverage" value={Math.round(stats.evaluationCoverage)} suffix="%" icon={ClipboardCheck} />
-        <StatCard
-          label="Needing Attention"
-          value={stats.peopleRequiringAttention}
-          icon={Sparkles}
-          tone={stats.peopleRequiringAttention > 0 ? "warning" : "positive"}
-        />
+        <StatCard label="Company Score" value={formatScore(stats.avgScore)} icon={Gauge} tone={stats.avgScore >= 75 ? "positive" : "warning"} />
+        <StatCard label="Evaluations" value={stats.totalEvaluations} icon={ClipboardCheck} />
+        <StatCard label="Engineers" value={stats.activePeople} icon={Users} />
+        <StatCard label="Teams" value={stats.activeTeams} icon={UsersRound} />
       </div>
 
-      {execSummary && (
-        <Card className="border-primary/20 bg-primary-muted/40">
-          <CardHeader className="flex-row items-center gap-2 space-y-0">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <CardTitle className="text-primary">Executive AI Summary</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-foreground">{execSummary.body}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Company Score Trend</CardTitle>
-            <CardDescription>Average evaluation score by month</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ScoreTrendChart data={trend} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Upcoming Demos</CardTitle>
-            <CardDescription>Scheduled and ready to go</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {upcoming.length === 0 ? (
-              <div className="py-6 text-center">
-                <p className="text-sm text-muted-foreground">No upcoming demos</p>
-                <Button asChild variant="link" size="sm">
-                  <Link href="/demos/new">Create Demo</Link>
-                </Button>
-              </div>
-            ) : (
-              <div className="flex flex-col divide-y divide-border">
-                {upcoming.map((d) => (
-                  <Link key={d.id} href={`/demos/${d.id}`} className="flex flex-col gap-0.5 py-2.5 hover:bg-surface-muted/60 -mx-2 px-2 rounded-md">
-                    <span className="text-sm font-medium text-foreground">{d.title}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {d.projects.map((p) => p.project.name).join(", ") || "No project"} · {d.date.toLocaleDateString()}
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Team Comparison</CardTitle>
-            <CardDescription>Average score by team</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {teamComparison.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">No team data yet</p>
-            ) : (
-              <TeamComparisonChart data={teamComparison.map((t) => ({ name: t.name, score: t.score }))} />
-            )}
-          </CardContent>
-        </Card>
-
-        {!ceo && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Pending Evaluations</CardTitle>
-              <CardDescription>Complete these to keep insights current</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {pending.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">No evaluations pending</p>
-              ) : (
-                <div className="flex flex-col divide-y divide-border">
-                  {pending.map((p) => (
-                    <Link
-                      key={p.demoId}
-                      href={`/demos/${p.demoId}/evaluate`}
-                      className="flex items-center justify-between py-2.5 hover:bg-surface-muted/60 -mx-2 px-2 rounded-md"
-                    >
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{p.demoTitle}</p>
-                        <p className="text-xs text-muted-foreground">{p.projectName}</p>
-                      </div>
-                      <Badge variant="warning">
-                        {p.pendingCount}/{p.totalAttendees} pending
-                      </Badge>
+      {/* Team Comparison */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Team Comparison</CardTitle>
+          <CardDescription>Every team, ranked by score — highest to lowest by default.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>#</TableHead>
+                <TableHead>
+                  <SortableHeader column="name" label="Team / Project" defaultDir="asc" sortParam="teamSort" dirParam="teamDir" />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader column="score" label="Score" sortParam="teamSort" dirParam="teamDir" />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader column="engineerCount" label="Engineers" sortParam="teamSort" dirParam="teamDir" />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader column="evaluationCount" label="Evaluations" sortParam="teamSort" dirParam="teamDir" />
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {teams.map((t, i) => (
+                <TableRow key={t.id}>
+                  <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                  <TableCell>
+                    <Link href={`/teams/${t.id}`} className="text-sm font-medium text-foreground hover:underline">
+                      {t.name}
                     </Link>
-                  ))}
-                </div>
+                  </TableCell>
+                  <TableCell><ScoreBadge score={t.score} /></TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{t.engineerCount}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {t.evaluationCount === 0 ? <span className="text-xs italic">No data yet</span> : t.evaluationCount}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Engineer Ranking */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Engineer Ranking</CardTitle>
+          <CardDescription>Every engineer in the organization, ranked by score.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>#</TableHead>
+                <TableHead>
+                  <SortableHeader column="name" label="Engineer" defaultDir="asc" sortParam="rankSort" dirParam="rankDir" />
+                </TableHead>
+                <TableHead>Team / Project</TableHead>
+                <TableHead>Manager</TableHead>
+                <TableHead>
+                  <SortableHeader column="score" label="Score" sortParam="rankSort" dirParam="rankDir" />
+                </TableHead>
+                <TableHead>Trend</TableHead>
+                <TableHead>
+                  <SortableHeader column="evaluationCount" label="Evaluations" sortParam="rankSort" dirParam="rankDir" />
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {ranking.map((r, i) => (
+                <TableRow key={r.id}>
+                  <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
+                  <TableCell>
+                    <Link href={`/people/${r.id}`} className="text-sm font-medium text-foreground hover:underline">
+                      {r.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {r.teams.map((t) => <Badge key={t} variant="secondary">{t}</Badge>)}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{r.managers.join(", ") || "—"}</TableCell>
+                  <TableCell><ScoreBadge score={r.score} /></TableCell>
+                  <TableCell><TrendIndicator trend={r.trend} /></TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{r.evaluationCount}</TableCell>
+                </TableRow>
+              ))}
+              {ranking.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                    No evaluation data available yet.
+                  </TableCell>
+                </TableRow>
               )}
-            </CardContent>
-          </Card>
-        )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-        {ceo && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Best Performing Teams</CardTitle>
-              <CardDescription>Ranked by average evaluation score</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col divide-y divide-border">
-                {teamComparison.slice(0, 5).map((t, i) => (
-                  <Link key={t.id} href={`/teams/${t.id}`} className="flex items-center justify-between py-2.5 hover:bg-surface-muted/60 -mx-2 px-2 rounded-md">
-                    <span className="text-sm font-medium text-foreground">
-                      {i + 1}. {t.name}
-                    </span>
-                    <Badge variant={t.score >= 75 ? "positive" : "secondary"}>{t.score}</Badge>
-                  </Link>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+      {/* Evaluation Questions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Evaluation Questions</CardTitle>
+          <CardDescription>Every configured question, aggregated from real evaluation answers.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>
+                  <SortableHeader column="question" label="Question" defaultDir="asc" sortParam="qSort" dirParam="qDir" />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader column="category" label="Category" defaultDir="asc" sortParam="qSort" dirParam="qDir" />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader column="yesRate" label="Yes Rate" sortParam="qSort" dirParam="qDir" />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader column="evaluationCount" label="Evaluations" sortParam="qSort" dirParam="qDir" />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader column="yesCount" label="Yes" sortParam="qSort" dirParam="qDir" />
+                </TableHead>
+                <TableHead>
+                  <SortableHeader column="noCount" label="No" sortParam="qSort" dirParam="qDir" />
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {questions.map((q) => (
+                <TableRow key={q.id}>
+                  <TableCell className="max-w-xs text-sm text-foreground">{q.question}</TableCell>
+                  <TableCell><Badge variant="secondary">{q.category}</Badge></TableCell>
+                  <TableCell>
+                    {q.yesRate === null ? (
+                      <span className="text-xs italic text-muted-foreground">No evaluation data</span>
+                    ) : (
+                      <ScoreBadge score={q.yesRate} />
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{q.evaluationCount}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{q.yesCount}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{q.noCount}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Top Performers</CardTitle>
-            <CardDescription>Who&apos;s standing out right now</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <TopPerformersList people={topPerformers} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Needs Attention</CardTitle>
-            <CardDescription>Growth opportunities and risk signals</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <NeedsAttentionList people={needsAttention} />
-          </CardContent>
-        </Card>
-      </div>
+      {/* Company Score Trend */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Company Score Trend</CardTitle>
+          <CardDescription>Average evaluation score by month, since September 2026.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {trend.length === 0 ? (
+            <p className="py-16 text-center text-sm text-muted-foreground">No evaluation data available yet.</p>
+          ) : (
+            <ScoreTrendChart data={trend} />
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

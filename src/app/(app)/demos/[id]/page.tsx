@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { UrlCards } from "@/components/projects/url-cards";
 import { AttendanceForm } from "@/components/demos/attendance-form";
+import { EditParticipantsForm } from "@/components/demos/edit-participants-form";
+import { ReopenButton } from "@/components/demos/reopen-button";
 import { CalendarDays, Clock, User } from "lucide-react";
 
 const STATUS_VARIANT: Record<string, "positive" | "warning" | "secondary" | "critical" | "info"> = {
@@ -31,13 +33,14 @@ export default async function DemoDetailPage({ params }: { params: Promise<{ id:
   const data = await getDemoDetail(id);
   if (!data) notFound();
 
-  const { demo, invitedManagers, invitedMembers, attendanceByUser, evaluationProgress } = data;
+  const { demo, invitedManagers, invitedMembers, attendanceByUser, evaluationProgress, teamRoster, evaluatedDeveloperIds } = data;
 
   const canManage = isCeo(session) || demo.hostManagerId === session.user.id || invitedManagers.some((m) => m.userId === session.user.id);
   const isInvitedEvaluator = invitedManagers.some((m) => m.userId === session.user.id);
 
   const totalExpected = evaluationProgress.reduce((s, p) => s + p.expectedEvaluations, 0);
   const totalCompleted = evaluationProgress.reduce((s, p) => s + p.completedEvaluations, 0);
+  const activeParticipantIds = invitedMembers.filter((m) => attendanceByUser.get(m.userId) === "PRESENT").map((m) => m.userId);
 
   return (
     <div className="flex flex-col gap-6">
@@ -46,15 +49,13 @@ export default async function DemoDetailPage({ params }: { params: Promise<{ id:
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold text-foreground">{demo.title}</h1>
             <Badge variant={STATUS_VARIANT[demo.status]}>{demo.status.replace("_", " ")}</Badge>
+            {demo.reopenedAt && <Badge variant="outline">Reopened {demo.reopenedAt.toLocaleDateString()}</Badge>}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{demo.description}</p>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />{demo.date.toLocaleDateString()}</span>
             <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{demo.startTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}–{demo.endTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
             <span className="inline-flex items-center gap-1"><User className="h-3.5 w-3.5" />Hosted by {demo.hostManager.name}</span>
-            {demo.projects.map((p) => (
-              <Link key={p.projectId} href={`/projects/${p.projectId}`} className="hover:underline">{p.project.name}</Link>
-            ))}
             {demo.teams.map((t) => (
               <Link key={t.teamId} href={`/teams/${t.teamId}`} className="hover:underline">{t.team.name}</Link>
             ))}
@@ -63,9 +64,10 @@ export default async function DemoDetailPage({ params }: { params: Promise<{ id:
         <div className="flex gap-2">
           {isInvitedEvaluator && demo.status !== "CANCELLED" && (
             <Button asChild variant="outline">
-              <Link href={`/demos/${demo.id}/evaluate`}>Start Evaluation</Link>
+              <Link href={`/demos/${demo.id}/evaluate`}>{totalCompleted > 0 ? "Continue Evaluation" : "Start Evaluation"}</Link>
             </Button>
           )}
+          {demo.status === "COMPLETED" && canManage && <ReopenButton demoId={demo.id} />}
           {demo.status === "COMPLETED" && (
             <Button asChild>
               <Link href={`/demos/${demo.id}/results`}>View Results</Link>
@@ -165,6 +167,26 @@ export default async function DemoDetailPage({ params }: { params: Promise<{ id:
           </CardContent>
         </Card>
       </div>
+
+      {canManage && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Edit Participants</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {teamRoster.length === 0 ? (
+              <p className="text-sm text-muted-foreground">This session has no linked team roster.</p>
+            ) : (
+              <EditParticipantsForm
+                demoId={demo.id}
+                roster={teamRoster.map((u) => ({ id: u.id, name: u.name }))}
+                initialSelectedIds={activeParticipantIds}
+                evaluatedIds={[...evaluatedDeveloperIds]}
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {demo.notes && (
         <Card>

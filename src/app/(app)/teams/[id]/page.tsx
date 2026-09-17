@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DimensionBars } from "@/components/charts/dimension-bars";
 import { ScoreBadge } from "@/components/dashboard/score-badge";
+import { UrlCards } from "@/components/projects/url-cards";
 import { Sparkles } from "lucide-react";
 import { initials } from "@/lib/utils";
 
@@ -16,7 +17,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   const data = await getTeamDetail(id);
   if (!data) notFound();
 
-  const { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount } = data;
+  const { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount, urls, deliverables } = data;
 
   return (
     <div className="flex flex-col gap-6">
@@ -94,6 +95,38 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
         </Card>
       </div>
 
+      {urls.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Links</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <UrlCards urls={urls} />
+          </CardContent>
+        </Card>
+      )}
+
+      {deliverables.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Deliverables</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-2 sm:grid-cols-2">
+            {deliverables.map((d) => (
+              <div key={d.id} className="rounded-md border border-border p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-foreground">{d.title}</p>
+                  <Badge variant={d.status === "COMPLETED" ? "positive" : d.status === "BLOCKED" ? "critical" : "secondary"} className="text-[10px]">
+                    {d.status.replace(/_/g, " ")}
+                  </Badge>
+                </div>
+                {d.owners.length > 0 && <p className="mt-1 text-xs text-muted-foreground">{d.owners.map((o) => o.user.name).join(", ")}</p>}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Demos</CardTitle>
@@ -104,7 +137,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
               <Link key={d.id} href={`/demos/${d.id}`} className="flex items-center justify-between px-5 py-3 hover:bg-surface-muted/60">
                 <div>
                   <p className="text-sm font-medium text-foreground">{d.title}</p>
-                  <p className="text-xs text-muted-foreground">{d.projects.map((p) => p.project.name).join(", ") || "—"} · {d.date.toLocaleDateString()}</p>
+                  <p className="text-xs text-muted-foreground">{d.date.toLocaleDateString()}</p>
                 </div>
                 <Badge variant={d.status === "COMPLETED" ? "positive" : d.status === "CANCELLED" ? "critical" : "info"}>
                   {d.status}

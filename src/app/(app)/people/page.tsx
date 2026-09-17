@@ -8,13 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
+import { SortableHeader } from "@/components/ui/sortable-header";
 import { initials } from "@/lib/utils";
 
-export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string }> }) {
+export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; sort?: string; dir?: string }> }) {
   await requireSession();
-  const { q, page } = await searchParams;
+  const { q, page, sort, dir } = await searchParams;
   const scope = UNSCOPED; // every manager sees the full org (CEO parity), per explicit product decision
-  const { rows, total, pageSize } = await listPeople(scope, { q, page: page ? Number(page) : 1 });
+  const { rows, total, pageSize } = await listPeople(scope, { q, page: page ? Number(page) : 1, sort, dir });
 
   return (
     <div className="flex flex-col gap-6">
@@ -39,12 +40,11 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Person</TableHead>
-                  <TableHead>Teams</TableHead>
-                  <TableHead>Projects</TableHead>
-                  <TableHead>Score</TableHead>
+                  <TableHead><SortableHeader column="name" label="Person" defaultDir="asc" /></TableHead>
+                  <TableHead>Team / Project</TableHead>
+                  <TableHead><SortableHeader column="currentScore" label="Score" /></TableHead>
                   <TableHead>Trend</TableHead>
-                  <TableHead>Evidence</TableHead>
+                  <TableHead><SortableHeader column="evaluationCount" label="Evidence" /></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -65,15 +65,6 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
                       <div className="flex flex-wrap gap-1">
                         {p.teams.map((t) => (
                           <Badge key={t} variant="secondary">{t}</Badge>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {p.projects.map((pr) => (
-                          <Badge key={pr.name} variant={pr.isPrimary ? "default" : "outline"}>
-                            {pr.name}
-                          </Badge>
                         ))}
                       </div>
                     </TableCell>

@@ -31,7 +31,7 @@ export default async function DemoResultsPage({ params }: { params: Promise<{ id
         </Link>
         <h1 className="mt-1 text-xl font-semibold text-foreground">Demo Results — {demo.title}</h1>
         <p className="text-sm text-muted-foreground">
-          {demo.projects.map((p) => p.project.name).join(", ")} · {demo.teams.map((t) => t.team.name).join(", ")} · {demo.date.toLocaleDateString()}
+          {demo.teams.map((t) => t.team.name).join(", ")} · {demo.date.toLocaleDateString()}
         </p>
       </div>
 

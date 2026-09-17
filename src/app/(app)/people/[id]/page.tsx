@@ -79,16 +79,9 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
                 <Row label="Attendance Rate" value={`${Math.round(attendance.rate)}%`} />
                 <Row label="Demos Attended" value={String(attendance.total)} />
                 <Row label="Avg. Participation (unofficial)" value={avgParticipation ? formatScore(avgParticipation * 20) : "—"} />
-                <Row label="Teams" value={person.teamMemberships?.length ? undefined : "—"} custom={
+                <Row label="Team / Project" value={person.teamMemberships?.length ? undefined : "—"} custom={
                   <div className="flex flex-wrap gap-1 justify-end">
                     {person.teamMemberships.map((tm) => <Badge key={tm.teamId} variant="secondary">{tm.team.name}</Badge>)}
-                  </div>
-                } />
-                <Row label="Projects" custom={
-                  <div className="flex flex-wrap gap-1 justify-end">
-                    {person.projectAssignments.map((pa) => (
-                      <Badge key={pa.projectId} variant={pa.isPrimary ? "default" : "outline"}>{pa.project.name}</Badge>
-                    ))}
                   </div>
                 } />
                 <Row label="Skills" custom={

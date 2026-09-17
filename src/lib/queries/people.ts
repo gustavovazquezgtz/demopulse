@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/prisma";
-import { computeConfidence, computeTrend } from "@/lib/scoring";
+import { computeConfidence, computeTrend, dedupeScoresByDemo } from "@/lib/scoring";
+import { sortRows } from "@/lib/sort";
 import type { Scope } from "./dashboard";
 
-export async function listPeople(scope: Scope, opts: { q?: string; teamId?: string; projectId?: string; page?: number; pageSize?: number } = {}) {
+export async function listPeople(
+  scope: Scope,
+  opts: { q?: string; teamId?: string; projectId?: string; page?: number; pageSize?: number; sort?: string; dir?: string } = {}
+) {
   const page = opts.page ?? 1;
   const pageSize = opts.pageSize ?? 20;
 
@@ -14,23 +18,21 @@ export async function listPeople(scope: Scope, opts: { q?: string; teamId?: stri
     ...(opts.projectId ? { projectAssignments: { some: { projectId: opts.projectId } } } : {}),
   };
 
-  const [total, people] = await Promise.all([
-    prisma.user.count({ where }),
-    prisma.user.findMany({
-      where,
-      include: {
-        teamMemberships: { include: { team: true } },
-        projectAssignments: { include: { project: true } },
-        evaluationsReceived: { where: { status: "COMPLETED" }, include: { demo: true }, orderBy: { demo: { date: "asc" } } },
-      },
-      orderBy: { name: "asc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  ]);
+  // Score/trend are computed after fetch, so sorting by them (and then
+  // paginating) has to happen in memory rather than via a DB ORDER BY —
+  // fine at this org's scale (dozens of people, not thousands).
+  const people = await prisma.user.findMany({
+    where,
+    include: {
+      teamMemberships: { include: { team: true } },
+      projectAssignments: { include: { project: true } },
+      evaluationsReceived: { where: { status: "COMPLETED" }, include: { demo: true }, orderBy: { demo: { date: "asc" } } },
+    },
+    orderBy: { name: "asc" },
+  });
 
-  const rows = people.map((p) => {
-    const scores = dedupeByDemo(p.evaluationsReceived);
+  const allRows = people.map((p) => {
+    const scores = dedupeScoresByDemo(p.evaluationsReceived);
     const trend = computeTrend(scores.map((s) => s.score));
     const confidence = computeConfidence(p.evaluationsReceived.length, 1);
     return {
@@ -47,20 +49,13 @@ export async function listPeople(scope: Scope, opts: { q?: string; teamId?: stri
     };
   });
 
+  const total = allRows.length;
+  const sorted = sortRows(allRows, opts.sort, opts.dir, "name", "asc");
+  const rows = sorted.slice((page - 1) * pageSize, page * pageSize);
+
   return { rows, total, page, pageSize };
 }
 
-function dedupeByDemo(evaluations: { demoId: string; demo: { date: Date }; score: number | null }[]) {
-  const byDemo = new Map<string, { date: Date; scores: number[] }>();
-  for (const e of evaluations) {
-    const entry = byDemo.get(e.demoId) ?? { date: e.demo.date, scores: [] };
-    entry.scores.push(e.score ?? 0);
-    byDemo.set(e.demoId, entry);
-  }
-  return [...byDemo.values()]
-    .sort((a, b) => a.date.getTime() - b.date.getTime())
-    .map((v) => ({ date: v.date, score: v.scores.reduce((s, n) => s + n, 0) / v.scores.length }));
-}
 
 export async function getPersonProfile(id: string) {
   const person = await prisma.user.findUnique({
@@ -78,7 +73,7 @@ export async function getPersonProfile(id: string) {
     orderBy: { demo: { date: "desc" } },
   });
 
-  const scoresByDemo = dedupeByDemo(evaluations.map((e) => ({ demoId: e.demoId, demo: e.demo, score: e.score })));
+  const scoresByDemo = dedupeScoresByDemo(evaluations.map((e) => ({ demoId: e.demoId, demo: e.demo, score: e.score })));
   const trend = computeTrend(scoresByDemo.map((s) => s.score));
   const confidence = computeConfidence(evaluations.length, new Set(evaluations.map((e) => e.evaluatorId)).size);
 

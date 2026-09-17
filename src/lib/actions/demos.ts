@@ -13,32 +13,50 @@ export async function createDemo(input: CreateDemoInput) {
   const session = await requireSession();
   const parsed = createDemoSchema.parse(input);
 
+  // The Team is the only thing the user picks — project comes along for free
+  // via the team's existing ProjectTeam link(s), so nobody re-selects work
+  // that's already implied by the team.
+  const teamProjects = await prisma.projectTeam.findMany({ where: { teamId: parsed.teamId }, select: { projectId: true } });
+  const projectIds = teamProjects.map((p) => p.projectId);
+  const primaryProjectId = projectIds[0];
+  if (parsed.deliverables.length > 0 && !primaryProjectId) {
+    throw new Error("This team has no linked project — link one before adding deliverables.");
+  }
+
   const date = new Date(parsed.date);
   const [startH, startM] = parsed.startTime.split(":").map(Number);
-  const [endH, endM] = parsed.endTime.split(":").map(Number);
   const startTime = new Date(date);
   startTime.setHours(startH, startM, 0, 0);
-  const endTime = new Date(date);
-  endTime.setHours(endH, endM, 0, 0);
+  const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1hr default; adjust later on the demo page
+
+  // Whoever starts the session can evaluate immediately, alongside the
+  // team's manager and any extra evaluators explicitly added.
+  const evaluatorIds = Array.from(new Set([parsed.hostManagerId, session.user.id, ...parsed.additionalManagerIds]));
 
   const demo = await prisma.demo.create({
     data: {
       title: parsed.title,
-      description: parsed.description,
       date,
       startTime,
       endTime,
-      status: "SCHEDULED",
+      status: "IN_PROGRESS",
       hostManagerId: parsed.hostManagerId,
       createdById: session.user.id,
-      teams: { create: parsed.teamIds.map((teamId) => ({ teamId })) },
-      projects: { create: parsed.projectIds.map((projectId) => ({ projectId })) },
+      teams: { create: [{ teamId: parsed.teamId }] },
+      projects: { create: projectIds.map((projectId) => ({ projectId })) },
       urls: { create: parsed.urls.map((u) => ({ label: u.label, url: u.url, type: u.type })) },
       invitees: {
         create: [
-          { userId: parsed.hostManagerId, role: "EVALUATOR_MANAGER" },
-          ...parsed.invitedManagerIds.filter((id) => id !== parsed.hostManagerId).map((id) => ({ userId: id, role: "EVALUATOR_MANAGER" as const })),
-          ...parsed.invitedMemberIds.map((id) => ({ userId: id, role: "ATTENDEE_MEMBER" as const })),
+          ...evaluatorIds.map((id) => ({ userId: id, role: "EVALUATOR_MANAGER" as const })),
+          ...parsed.engineerIds.map((id) => ({ userId: id, role: "ATTENDEE_MEMBER" as const })),
+        ],
+      },
+      // Selecting an engineer for the session *is* the attendance record —
+      // no separate "take attendance" step before evaluating starts.
+      attendees: {
+        create: [
+          ...evaluatorIds.map((id) => ({ userId: id, status: "PRESENT" as const })),
+          ...parsed.engineerIds.map((id) => ({ userId: id, status: "PRESENT" as const })),
         ],
       },
       deliverables: {
@@ -46,7 +64,7 @@ export async function createDemo(input: CreateDemoInput) {
           title: d.title,
           description: d.description,
           expectedOutcome: d.expectedOutcome,
-          projectId: d.projectId,
+          projectId: primaryProjectId!,
           owners: { create: d.ownerIds.map((userId) => ({ userId })) },
         })),
       },
@@ -58,7 +76,8 @@ export async function createDemo(input: CreateDemoInput) {
   });
 
   revalidatePath("/demos");
-  redirect(`/demos/${demo.id}`);
+  revalidatePath("/calendar");
+  redirect(`/demos/${demo.id}/evaluate`);
 }
 
 export async function updateDemoStatus(demoId: string, status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED") {
@@ -69,6 +88,109 @@ export async function updateDemoStatus(demoId: string, status: "SCHEDULED" | "IN
   });
   revalidatePath(`/demos/${demoId}`);
   revalidatePath("/demos");
+}
+
+/**
+ * Completed never means locked — it means "the manager marked this done at
+ * the time." Reopening just flips the status back to IN_PROGRESS (evaluation
+ * editing already works regardless of status; canEvaluate never checks it)
+ * and stamps reopenedAt so the UI can say clearly that this session was
+ * revisited after being completed.
+ */
+export async function reopenDemo(demoId: string) {
+  const session = await requireSession();
+  const demo = await prisma.demo.findUniqueOrThrow({ where: { id: demoId } });
+  if (demo.status !== "COMPLETED") {
+    throw new Error("Only a completed session can be reopened.");
+  }
+
+  await prisma.demo.update({ where: { id: demoId }, data: { status: "IN_PROGRESS", reopenedAt: new Date() } });
+  await prisma.auditLog.create({
+    data: { userId: session.user.id, entityType: "Demo", entityId: demoId, action: "REOPEN", before: { status: "COMPLETED" }, after: { status: "IN_PROGRESS" } },
+  });
+
+  revalidatePath(`/demos/${demoId}`);
+  revalidatePath(`/demos/${demoId}/evaluate`);
+  revalidatePath("/demos");
+}
+
+/**
+ * Adds or removes engineers from a session after the fact (forgot someone,
+ * or added someone by mistake). Adding creates the invite + PRESENT
+ * attendance record needed for them to show up in the Evaluation Matrix
+ * immediately. Removing is safe by default: if the engineer already has an
+ * evaluation recorded for this demo, that evaluation is never deleted —
+ * the engineer is marked ABSENT instead (soft removal) so they drop off the
+ * active roster without losing evaluation history. Only a participant with
+ * zero evaluations for this demo is fully removed.
+ */
+export async function updateDemoParticipants(demoId: string, engineerIds: string[]) {
+  const session = await requireSession();
+
+  const [currentInvitees, currentAttendance, existingEvaluations] = await Promise.all([
+    prisma.demoInvitee.findMany({ where: { demoId, role: "ATTENDEE_MEMBER" } }),
+    prisma.demoAttendee.findMany({ where: { demoId } }),
+    prisma.evaluation.findMany({ where: { demoId }, select: { developerId: true } }),
+  ]);
+
+  // "Currently a participant" means actively PRESENT, not merely having an
+  // invitee row — a previously soft-removed person (invitee row kept,
+  // attendance ABSENT) must be re-addable by checking them again.
+  const presentIds = new Set(currentAttendance.filter((a) => a.status === "PRESENT").map((a) => a.userId));
+  const invitedIds = new Set(currentInvitees.map((i) => i.userId));
+  const currentIds = new Set([...invitedIds].filter((id) => presentIds.has(id)));
+  const nextIds = new Set(engineerIds);
+  const evaluatedIds = new Set(existingEvaluations.map((e) => e.developerId));
+
+  const toAdd = [...nextIds].filter((id) => !currentIds.has(id));
+  const toRemove = [...currentIds].filter((id) => !nextIds.has(id));
+
+  for (const userId of toAdd) {
+    await prisma.demoInvitee.upsert({
+      where: { demoId_userId_role: { demoId, userId, role: "ATTENDEE_MEMBER" } },
+      update: {},
+      create: { demoId, userId, role: "ATTENDEE_MEMBER" },
+    });
+    await prisma.demoAttendee.upsert({
+      where: { demoId_userId: { demoId, userId } },
+      update: { status: "PRESENT" },
+      create: { demoId, userId, status: "PRESENT" },
+    });
+  }
+
+  const softRemoved: string[] = [];
+  const hardRemoved: string[] = [];
+  for (const userId of toRemove) {
+    if (evaluatedIds.has(userId)) {
+      // Preserve the historical evaluation — just take them off the active roster.
+      await prisma.demoAttendee.upsert({
+        where: { demoId_userId: { demoId, userId } },
+        update: { status: "ABSENT" },
+        create: { demoId, userId, status: "ABSENT" },
+      });
+      softRemoved.push(userId);
+    } else {
+      await prisma.demoAttendee.deleteMany({ where: { demoId, userId } });
+      await prisma.demoInvitee.deleteMany({ where: { demoId, userId, role: "ATTENDEE_MEMBER" } });
+      hardRemoved.push(userId);
+    }
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      userId: session.user.id,
+      entityType: "Demo",
+      entityId: demoId,
+      action: "UPDATE_PARTICIPANTS",
+      after: { added: toAdd, softRemoved, hardRemoved },
+    },
+  });
+
+  revalidatePath(`/demos/${demoId}`);
+  revalidatePath(`/demos/${demoId}/evaluate`);
+  revalidatePath(`/demos/${demoId}/results`);
+
+  return { added: toAdd.length, softRemoved, hardRemoved };
 }
 
 export async function recordAttendance(demoId: string, records: { userId: string; status: "PRESENT" | "ABSENT" | "EXCUSED" }[]) {

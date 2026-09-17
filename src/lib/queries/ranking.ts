@@ -1,18 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import type { Scope } from "./dashboard";
-import { computeTrend } from "@/lib/scoring";
+import { computeTrend, dedupeScoresByDemo } from "@/lib/scoring";
+import { sortRows } from "@/lib/sort";
 
-export async function getRanking(scope: Scope, opts: { teamId?: string; projectId?: string } = {}) {
+export async function getRanking(scope: Scope, opts: { teamId?: string; sort?: string; dir?: string } = {}) {
   const people = await prisma.user.findMany({
     where: {
       role: "DEVELOPER",
       ...(scope.personIds ? { id: { in: scope.personIds } } : {}),
       ...(opts.teamId ? { teamMemberships: { some: { teamId: opts.teamId } } } : {}),
-      ...(opts.projectId ? { projectAssignments: { some: { projectId: opts.projectId } } } : {}),
     },
     include: {
-      teamMemberships: { include: { team: true } },
-      projectAssignments: { include: { project: true } },
+      teamMemberships: { include: { team: { include: { managers: { include: { user: true } } } } } },
       evaluationsReceived: {
         where: { status: "COMPLETED" },
         include: { demo: true, answers: { include: { criterion: true } } },
@@ -33,16 +32,7 @@ export async function getRanking(scope: Scope, opts: { teamId?: string; projectI
   }
 
   const rows = people.map((p) => {
-    const byDemo = new Map<string, number[]>();
-    for (const e of p.evaluationsReceived) {
-      const list = byDemo.get(e.demoId) ?? [];
-      list.push(e.score ?? 0);
-      byDemo.set(e.demoId, list);
-    }
-    const demoDates = new Map(p.evaluationsReceived.map((e) => [e.demoId, e.demo.date]));
-    const scoresChrono = [...byDemo.entries()]
-      .sort((a, b) => demoDates.get(a[0])!.getTime() - demoDates.get(b[0])!.getTime())
-      .map(([, scores]) => scores.reduce((s, n) => s + n, 0) / scores.length);
+    const scoresChrono = dedupeScoresByDemo(p.evaluationsReceived).map((s) => s.score);
     const trend = computeTrend(scoresChrono);
 
     const dim = (name: string) => {
@@ -52,11 +42,13 @@ export async function getRanking(scope: Scope, opts: { teamId?: string; projectI
 
     const att = attendanceByPerson.get(p.id);
 
+    const managers = [...new Set(p.teamMemberships.flatMap((tm) => tm.team.managers.map((m) => m.user.name)))];
+
     return {
       id: p.id,
       name: p.name,
-      teams: p.teamMemberships.map((tm) => tm.team.name),
-      projects: p.projectAssignments.map((pa) => pa.project.name),
+      teams: p.teamMemberships.map((tm) => tm.team.name), // "Team / Project" — one concept, see section 7
+      managers,
       score: trend.current,
       trend: trend.trend,
       attendance: att ? (att.present / att.total) * 100 : null,
@@ -67,5 +59,5 @@ export async function getRanking(scope: Scope, opts: { teamId?: string; projectI
     };
   });
 
-  return rows.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  return sortRows(rows, opts.sort, opts.dir, "score", "desc");
 }

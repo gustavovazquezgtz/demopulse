@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHeader } from "@/components/ui/sortable-header";
 import { cn } from "@/lib/utils";
 
 const STATUS_VARIANT: Record<string, "positive" | "warning" | "secondary" | "critical" | "info"> = {
@@ -15,11 +16,11 @@ const STATUS_VARIANT: Record<string, "positive" | "warning" | "secondary" | "cri
   CANCELLED: "critical",
 };
 
-export default async function DemosPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+export default async function DemosPage({ searchParams }: { searchParams: Promise<{ status?: string; sort?: string; dir?: string }> }) {
   await requireSession();
-  const { status } = await searchParams;
+  const { status, sort, dir } = await searchParams;
   const scope = UNSCOPED; // every manager sees the full org (CEO parity), per explicit product decision
-  const demos = await listDemos(scope, { status });
+  const demos = await listDemos(scope, { status, sort, dir });
 
   const tabs = [
     { label: "All", value: undefined },
@@ -68,12 +69,11 @@ export default async function DemosPage({ searchParams }: { searchParams: Promis
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Demo</TableHead>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Team</TableHead>
-                  <TableHead>Host</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead><SortableHeader column="title" label="Demo" defaultDir="asc" /></TableHead>
+                  <TableHead>Team / Project</TableHead>
+                  <TableHead><SortableHeader column="hostManagerName" label="Host" defaultDir="asc" /></TableHead>
+                  <TableHead><SortableHeader column="date" label="Date" /></TableHead>
+                  <TableHead><SortableHeader column="status" label="Status" defaultDir="asc" /></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -84,9 +84,8 @@ export default async function DemosPage({ searchParams }: { searchParams: Promis
                         {d.title}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.projects.map((p) => p.project.name).join(", ") || "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.teams.map((t) => t.team.name).join(", ")}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.hostManager.name}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{d.teamNames}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{d.hostManagerName}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{d.date.toLocaleDateString()}</TableCell>
                     <TableCell>
                       <Badge variant={STATUS_VARIANT[d.status]}>{d.status.replace("_", " ")}</Badge>

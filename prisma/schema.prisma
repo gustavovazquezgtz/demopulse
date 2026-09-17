@@ -326,6 +326,7 @@ model Demo {
   createdById   String
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+  reopenedAt    DateTime? // set whenever a COMPLETED session is reopened for edits (section 21 audit trail)
 
   hostManager User @relation("HostManager", fields: [hostManagerId], references: [id])
   createdBy   User @relation("CreatedBy", fields: [createdById], references: [id])

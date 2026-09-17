@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import type { Scope } from "./dashboard";
+import { averageScore } from "@/lib/scoring";
+import { sortRows } from "@/lib/sort";
 
-export async function listTeams(scope: Scope) {
+export async function listTeams(scope: Scope, opts: { sort?: string; dir?: string } = {}) {
   const teams = await prisma.team.findMany({
     where: scope.teamIds ? { id: { in: scope.teamIds } } : {},
     include: {
@@ -23,7 +25,7 @@ export async function listTeams(scope: Scope) {
       where: { demo: { teams: { some: { teamId: t.id } } } },
       select: { status: true },
     });
-    const avgScore = evaluations.length ? evaluations.reduce((s, e) => s + (e.score ?? 0), 0) / evaluations.length : 0;
+    const avgScore = averageScore(evaluations.map((e) => e.score));
     const attendanceRate = attendance.length ? (attendance.filter((a) => a.status === "PRESENT").length / attendance.length) * 100 : 0;
 
     results.push({
@@ -37,9 +39,10 @@ export async function listTeams(scope: Scope) {
       avgScore,
       attendanceRate,
       evaluatedCount: new Set(evaluations.map((e) => e.developerId)).size,
+      evaluationCount: evaluations.length,
     });
   }
-  return results;
+  return sortRows(results, opts.sort, opts.dir, "name", "asc");
 }
 
 export async function getTeamDetail(id: string) {
@@ -48,10 +51,24 @@ export async function getTeamDetail(id: string) {
     include: {
       managers: { include: { user: true } },
       members: { include: { user: true } },
-      projects: { include: { project: true } },
+      projects: { include: { project: { include: { urls: true } } } },
     },
   });
   if (!team) return null;
+
+  // Team and Project are one concept for the user — deliverables/links live
+  // on Project in the schema, so pull them in here rather than sending
+  // people to a separate Projects screen.
+  const linkedProjectIds = team.projects.map((p) => p.projectId);
+  const urls = team.projects.flatMap((p) => p.project.urls);
+  const deliverables = linkedProjectIds.length
+    ? await prisma.demoDeliverable.findMany({
+        where: { projectId: { in: linkedProjectIds } },
+        include: { owners: { include: { user: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+      })
+    : [];
 
   const demos = await prisma.demo.findMany({
     where: { teams: { some: { teamId: id } } },
@@ -64,7 +81,7 @@ export async function getTeamDetail(id: string) {
   });
   const attendance = await prisma.demoAttendee.findMany({ where: { demo: { teams: { some: { teamId: id } } } } });
 
-  const avgScore = evaluations.length ? evaluations.reduce((s, e) => s + (e.score ?? 0), 0) / evaluations.length : 0;
+  const avgScore = averageScore(evaluations.map((e) => e.score));
   const attendanceRate = attendance.length ? (attendance.filter((a) => a.status === "PRESENT").length / attendance.length) * 100 : 0;
 
   const byDim = new Map<string, { yes: number; total: number }>();
@@ -80,5 +97,5 @@ export async function getTeamDetail(id: string) {
 
   const insight = await prisma.aiInsight.findFirst({ where: { subjectType: "TEAM", subjectId: id }, orderBy: { createdAt: "desc" } });
 
-  return { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount: evaluations.length };
+  return { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount: evaluations.length, urls, deliverables };
 }
