@@ -1,0 +1,646 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────
+
+// MANAGER/CEO accounts can authenticate; DEVELOPER people are evaluated,
+// assigned, and attend demos like anyone else but have no login (passwordHash
+// stays null for them) — see section 2 vs section 4 of the product spec.
+enum UserRole {
+  MANAGER
+  CEO
+  DEVELOPER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum DemoStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum InviteRole {
+  EVALUATOR_MANAGER
+  ATTENDEE_MANAGER
+  ATTENDEE_MEMBER
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  EXCUSED
+}
+
+enum DeliverableStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  BLOCKED
+  PARTIALLY_COMPLETED
+}
+
+enum EvaluationStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum PerformanceTrend {
+  IMPROVING
+  STABLE
+  DECLINING
+  INSUFFICIENT_DATA
+}
+
+enum ManagerRecommendation {
+  STRONGLY_RECOMMEND
+  RECOMMEND
+  NEUTRAL
+  NEEDS_ATTENTION
+  SIGNIFICANT_CONCERN
+}
+
+enum UrlType {
+  PRODUCTION
+  STAGING
+  GITHUB
+  DOCUMENTATION
+  FIGMA
+  DEMO_ENV
+  OTHER
+}
+
+enum InsightSubjectType {
+  PERSON
+  TEAM
+  PROJECT
+  ORGANIZATION
+}
+
+enum InsightType {
+  STRENGTH
+  DEVELOPMENT
+  RISK
+  RECOGNITION
+  RECOMMENDATION
+  TREND
+  SUMMARY
+}
+
+enum AlertType {
+  PERFORMANCE
+  DELIVERY
+  AI_ADOPTION
+  UX
+  BUSINESS_UNDERSTANDING
+  ATTENDANCE
+  TREND
+  RECOGNITION
+}
+
+enum AlertSeverity {
+  INFORMATIONAL
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AlertStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum RecognitionSource {
+  AI
+  MANAGER
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// People / Org structure
+// ─────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String? // null for DEVELOPER people — they cannot authenticate
+  role         UserRole
+  title        String? // e.g. "Senior Developer" — for developers; managers can be blank
+  avatarUrl    String?
+  skills       String[] @default([])
+  active       Boolean  @default(true)
+  dateJoined   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Team relationships
+  teamMemberships TeamMember[]
+  teamsManaged    TeamManager[]
+
+  // Project relationships
+  projectAssignments ProjectAssignment[]
+  projectsManaged    ProjectManager[]
+
+  // Demos
+  demosHosted           Demo[]             @relation("HostManager")
+  demosCreated          Demo[]             @relation("CreatedBy")
+  demoInvitations       DemoInvitee[]
+  demoAttendances       DemoAttendee[]     @relation("Attendee")
+  deliverableOwnerships DeliverableOwner[]
+
+  // Evaluations — as the developer being evaluated
+  evaluationsReceived Evaluation[] @relation("Developer")
+  // Evaluations — as the evaluating manager
+  evaluationsGiven    Evaluation[] @relation("Evaluator")
+
+  participationGiven    ParticipationScore[] @relation("RatedBy")
+  participationReceived ParticipationScore[] @relation("RatedDeveloper")
+
+  opinionsGiven    ManagerOpinion[] @relation("OpinionManager")
+  opinionsReceived ManagerOpinion[] @relation("OpinionDeveloper")
+
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  recognitionsReceived Recognition[] @relation("RecognitionDeveloper")
+
+  @@index([role])
+  @@index([active])
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  managers TeamManager[]
+  members  TeamMember[]
+  projects ProjectTeam[]
+  demos    DemoTeam[]
+
+  @@index([name])
+}
+
+model TeamManager {
+  id     String @id @default(cuid())
+  teamId String
+  userId String
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@index([teamId])
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@index([teamId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Projects
+// ─────────────────────────────────────────────────────────────────────────
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  client      String?
+  status      ProjectStatus @default(ACTIVE)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  managers     ProjectManager[]
+  assignments  ProjectAssignment[]
+  teams        ProjectTeam[]
+  urls         ProjectUrl[]
+  demos        DemoProject[]
+  deliverables DemoDeliverable[]
+  evaluations  Evaluation[]
+
+  @@index([status])
+  @@index([name])
+}
+
+model ProjectUrl {
+  id        String  @id @default(cuid())
+  projectId String
+  type      UrlType @default(OTHER)
+  label     String
+  url       String
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model ProjectManager {
+  id        String @id @default(cuid())
+  projectId String
+  userId    String
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@index([projectId])
+}
+
+model ProjectTeam {
+  id        String @id @default(cuid())
+  projectId String
+  teamId    String
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, teamId])
+  @@index([teamId])
+  @@index([projectId])
+}
+
+// A person assigned to a project. isPrimary marks a person's "primary project"
+// (a person can have exactly one primary + many secondary assignments).
+model ProjectAssignment {
+  id        String    @id @default(cuid())
+  projectId String
+  userId    String
+  isPrimary Boolean   @default(false)
+  startDate DateTime  @default(now())
+  endDate   DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@index([projectId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Demos
+// ─────────────────────────────────────────────────────────────────────────
+
+model Demo {
+  id            String     @id @default(cuid())
+  title         String
+  description   String?
+  date          DateTime
+  startTime     DateTime
+  endTime       DateTime
+  status        DemoStatus @default(SCHEDULED)
+  notes         String?
+  hostManagerId String
+  createdById   String
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  hostManager User @relation("HostManager", fields: [hostManagerId], references: [id])
+  createdBy   User @relation("CreatedBy", fields: [createdById], references: [id])
+
+  // A demo can involve multiple teams presenting together (e.g. two squads
+  // sharing a session) and, correspondingly, multiple projects.
+  teams         DemoTeam[]
+  projects      DemoProject[]
+  urls          DemoUrl[]
+  invitees      DemoInvitee[]
+  attendees     DemoAttendee[]
+  deliverables  DemoDeliverable[]
+  evaluations   Evaluation[]
+  participation ParticipationScore[]
+
+  @@index([hostManagerId])
+  @@index([date])
+  @@index([status])
+}
+
+model DemoTeam {
+  id     String @id @default(cuid())
+  demoId String
+  teamId String
+
+  demo Demo @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([demoId, teamId])
+  @@index([demoId])
+  @@index([teamId])
+}
+
+model DemoProject {
+  id        String @id @default(cuid())
+  demoId    String
+  projectId String
+
+  demo    Demo    @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([demoId, projectId])
+  @@index([demoId])
+  @@index([projectId])
+}
+
+model DemoUrl {
+  id     String  @id @default(cuid())
+  demoId String
+  type   UrlType @default(OTHER)
+  label  String
+  url    String
+
+  demo Demo @relation(fields: [demoId], references: [id], onDelete: Cascade)
+
+  @@index([demoId])
+}
+
+// Invitation list captured at scheduling time — distinct from actual attendance.
+model DemoInvitee {
+  id     String     @id @default(cuid())
+  demoId String
+  userId String
+  role   InviteRole
+
+  demo Demo @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([demoId, userId, role])
+  @@index([demoId])
+  @@index([userId])
+}
+
+model DemoAttendee {
+  id         String           @id @default(cuid())
+  demoId     String
+  userId     String
+  status     AttendanceStatus @default(PRESENT)
+  recordedAt DateTime         @default(now())
+
+  demo Demo @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  user User @relation("Attendee", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([demoId, userId])
+  @@index([demoId])
+  @@index([userId])
+}
+
+// "Unofficial Participation Indicators" — separate from the official evaluation.
+model ParticipationScore {
+  id            String   @id @default(cuid())
+  demoId        String
+  developerId   String
+  ratedById     String
+  participation Int // 1-5
+  engagement    Int
+  commitment    Int
+  communication Int
+  preparedness  Int
+  note          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  demo      Demo @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  developer User @relation("RatedDeveloper", fields: [developerId], references: [id], onDelete: Cascade)
+  ratedBy   User @relation("RatedBy", fields: [ratedById], references: [id], onDelete: Cascade)
+
+  @@unique([demoId, developerId, ratedById])
+  @@index([demoId])
+  @@index([developerId])
+}
+
+model DemoDeliverable {
+  id              String            @id @default(cuid())
+  demoId          String
+  projectId       String
+  title           String
+  description     String?
+  expectedOutcome String?
+  status          DeliverableStatus @default(NOT_STARTED)
+  urls            String[]          @default([])
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  demo    Demo               @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  project Project            @relation(fields: [projectId], references: [id])
+  owners  DeliverableOwner[]
+
+  @@index([demoId])
+  @@index([projectId])
+}
+
+model DeliverableOwner {
+  id            String @id @default(cuid())
+  deliverableId String
+  userId        String
+
+  deliverable DemoDeliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([deliverableId, userId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Evaluations (configurable criteria — not hardcoded questions)
+// ─────────────────────────────────────────────────────────────────────────
+
+model EvaluationCriterion {
+  id        String   @id @default(cuid())
+  code      String   @unique // e.g. "delivery", "complexity", "business", "ux", "ai_usage", "english"
+  text      String // the exact question wording shown to managers
+  dimension String // short label used in charts: Delivery, Complexity, Business, UX, AI, English
+  order     Int      @default(0)
+  weight    Float    @default(1)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  answers EvaluationAnswer[]
+
+  @@index([active])
+}
+
+model Evaluation {
+  id                  String           @id @default(cuid())
+  demoId              String
+  developerId         String
+  evaluatorId         String
+  projectId           String // which project this evaluation pertains to (developer may be on multiple)
+  status              EvaluationStatus @default(NOT_STARTED)
+  overallComment      String?
+  strengths           String?
+  areasForImprovement String?
+  score               Float? // (yes / totalWeight) * 100, cached on completion
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  demo      Demo    @relation(fields: [demoId], references: [id], onDelete: Cascade)
+  developer User    @relation("Developer", fields: [developerId], references: [id], onDelete: Cascade)
+  evaluator User    @relation("Evaluator", fields: [evaluatorId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id])
+
+  answers EvaluationAnswer[]
+
+  // one evaluation per (manager, developer, demo) — rule #3
+  @@unique([demoId, developerId, evaluatorId])
+  @@index([developerId])
+  @@index([evaluatorId])
+  @@index([demoId])
+  @@index([createdAt])
+}
+
+model EvaluationAnswer {
+  id           String  @id @default(cuid())
+  evaluationId String
+  criterionId  String
+  answer       Boolean
+  comment      String?
+
+  evaluation Evaluation          @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  criterion  EvaluationCriterion @relation(fields: [criterionId], references: [id])
+
+  @@unique([evaluationId, criterionId])
+  @@index([evaluationId])
+}
+
+// Manager Opinion — distinct from the demo evaluation. One evolving record
+// per (manager, developer) pair; history captured via AuditLog.
+model ManagerOpinion {
+  id             String                @id @default(cuid())
+  developerId    String
+  managerId      String
+  strengths      String?
+  concerns       String?
+  growthAreas    String?
+  confidence     Int // 1-5
+  trend          PerformanceTrend      @default(INSUFFICIENT_DATA)
+  recommendation ManagerRecommendation @default(NEUTRAL)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  developer User @relation("OpinionDeveloper", fields: [developerId], references: [id], onDelete: Cascade)
+  manager   User @relation("OpinionManager", fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([developerId, managerId])
+  @@index([developerId])
+  @@index([managerId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AI layer
+// ─────────────────────────────────────────────────────────────────────────
+
+model AiInsight {
+  id          String             @id @default(cuid())
+  subjectType InsightSubjectType
+  subjectId   String? // null for ORGANIZATION-level insights
+  type        InsightType
+  title       String
+  body        String
+  evidence    Json // structured "why am I seeing this" data
+  createdAt   DateTime           @default(now())
+
+  @@index([subjectType, subjectId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model AiAlert {
+  id          String             @id @default(cuid())
+  type        AlertType
+  severity    AlertSeverity
+  status      AlertStatus        @default(ACTIVE)
+  subjectType InsightSubjectType
+  subjectId   String
+  title       String
+  description String
+  evidence    Json
+  createdAt   DateTime           @default(now())
+  resolvedAt  DateTime?
+
+  @@index([subjectType, subjectId])
+  @@index([status])
+  @@index([severity])
+}
+
+model Recognition {
+  id           String            @id @default(cuid())
+  developerId  String
+  title        String
+  body         String
+  evidence     Json
+  source       RecognitionSource @default(AI)
+  acknowledged Boolean           @default(false)
+  createdAt    DateTime          @default(now())
+
+  developer User @relation("RecognitionDeveloper", fields: [developerId], references: [id], onDelete: Cascade)
+
+  @@index([developerId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Notifications & Auditability
+// ─────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  entityType String
+  entityId   String
+  action     String // CREATE | UPDATE | DELETE
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
