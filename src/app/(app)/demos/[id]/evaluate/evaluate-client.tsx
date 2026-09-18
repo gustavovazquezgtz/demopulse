@@ -137,7 +137,12 @@ export function EvaluateClient({
             <CardTitle>{current.name}</CardTitle>
             <p className="text-xs text-muted-foreground">{current.title ?? "Developer"}</p>
           </div>
-          {current.completed && <Badge variant="positive">Completed</Badge>}
+          {current.completed && (
+            <div className="flex flex-col items-end gap-0.5">
+              <Badge variant="positive">Completed</Badge>
+              <span className="text-[10px] text-muted-foreground">Still editable — changes save automatically</span>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
           {criteria.map((c) => (
@@ -239,11 +244,11 @@ export function EvaluateClient({
         </span>
         {index < developers.length - 1 ? (
           <Button onClick={completeAndNext} disabled={!allAnswered}>
-            Complete &amp; Next <ChevronRight className="h-4 w-4" />
+            {current.completed ? "Save & Next" : "Complete & Next"} <ChevronRight className="h-4 w-4" />
           </Button>
         ) : (
           <Button onClick={() => doSave(true)} disabled={!allAnswered}>
-            Complete Evaluation
+            {current.completed ? "Save Changes" : "Complete Evaluation"}
           </Button>
         )}
       </div>

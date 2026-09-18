@@ -243,14 +243,27 @@ export async function saveEvaluation(demoId: string, draft: EvaluationDraft) {
   const demo = await prisma.demo.findUniqueOrThrow({ where: { id: demoId }, include: { teams: true, projects: true } });
   const projectId = await resolveEvaluationProjectId(demo.projects.map((p) => p.projectId), draft.developerId);
 
-  const score = draft.complete
+  const existing = await prisma.evaluation.findUnique({
+    where: { demoId_developerId_evaluatorId: { demoId, developerId: draft.developerId, evaluatorId } },
+    select: { status: true },
+  });
+
+  // Once an evaluation has been completed, editing one answer must not
+  // silently blank its score and drop it out of every dashboard/ranking
+  // until the manager re-clicks "Complete" — that's exactly the flow a
+  // reopened demo needs to support. Autosave on a genuinely new/unfinished
+  // evaluation still waits for the explicit "complete" action, unchanged.
+  const wasCompleted = existing?.status === "COMPLETED";
+  const finalize = draft.complete || wasCompleted;
+
+  const score = finalize
     ? computeEvaluationScore(draft.answers.map((a) => ({ criterionCode: a.criterionId, answer: a.answer, weight: 1 })))
     : null;
 
   const evaluation = await prisma.evaluation.upsert({
     where: { demoId_developerId_evaluatorId: { demoId, developerId: draft.developerId, evaluatorId } },
     update: {
-      status: draft.complete ? "COMPLETED" : "IN_PROGRESS",
+      status: finalize ? "COMPLETED" : "IN_PROGRESS",
       overallComment: draft.overallComment,
       strengths: draft.strengths,
       areasForImprovement: draft.areasForImprovement,
@@ -261,7 +274,7 @@ export async function saveEvaluation(demoId: string, draft: EvaluationDraft) {
       developerId: draft.developerId,
       evaluatorId,
       projectId,
-      status: draft.complete ? "COMPLETED" : "IN_PROGRESS",
+      status: finalize ? "COMPLETED" : "IN_PROGRESS",
       overallComment: draft.overallComment,
       strengths: draft.strengths,
       areasForImprovement: draft.areasForImprovement,
