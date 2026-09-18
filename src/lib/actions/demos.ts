@@ -105,6 +105,22 @@ export async function reopenDemo(demoId: string) {
   }
 
   await prisma.demo.update({ where: { id: demoId }, data: { status: "IN_PROGRESS", reopenedAt: new Date() } });
+
+  // Whoever reopens a session can evaluate immediately, even if they weren't
+  // on the original invite list — that's usually exactly why they're
+  // reopening it (a missed evaluation). Same principle already used when a
+  // session is first created (createDemo).
+  await prisma.demoInvitee.upsert({
+    where: { demoId_userId_role: { demoId, userId: session.user.id, role: "EVALUATOR_MANAGER" } },
+    update: {},
+    create: { demoId, userId: session.user.id, role: "EVALUATOR_MANAGER" },
+  });
+  await prisma.demoAttendee.upsert({
+    where: { demoId_userId: { demoId, userId: session.user.id } },
+    update: { status: "PRESENT" },
+    create: { demoId, userId: session.user.id, status: "PRESENT" },
+  });
+
   await prisma.auditLog.create({
     data: { userId: session.user.id, entityType: "Demo", entityId: demoId, action: "REOPEN", before: { status: "COMPLETED" }, after: { status: "IN_PROGRESS" } },
   });

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { requireSession, isCeo } from "@/lib/permissions";
+import { requireSession } from "@/lib/permissions";
 import { getDemoDetail } from "@/lib/queries/demos";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +35,10 @@ export default async function DemoDetailPage({ params }: { params: Promise<{ id:
 
   const { demo, invitedManagers, invitedMembers, attendanceByUser, evaluationProgress, teamRoster, evaluatedDeveloperIds } = data;
 
-  const canManage = isCeo(session) || demo.hostManagerId === session.user.id || invitedManagers.some((m) => m.userId === session.user.id);
+  // Any manager or CEO can manage any demo — global visibility/edit rights,
+  // not scoped to who originally hosted or was invited (explicit product
+  // decision, matches the rest of the app's org-wide access model).
+  const canManage = true;
   const isInvitedEvaluator = invitedManagers.some((m) => m.userId === session.user.id);
 
   const totalExpected = evaluationProgress.reduce((s, p) => s + p.expectedEvaluations, 0);
