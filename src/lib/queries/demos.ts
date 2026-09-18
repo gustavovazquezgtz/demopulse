@@ -69,7 +69,12 @@ export async function getDemoDetail(id: string) {
     include: { managers: { include: { user: true } }, members: { include: { user: true } } },
   });
 
-  return { demo, invitedManagers, invitedMembers, attendanceByUser, evaluationProgress, teamRoster, evaluatedDeveloperIds, allTeams };
+  // Every manager in the org — evaluations aren't limited to a developer's
+  // own team, so any manager can be invited as an evaluator, not just
+  // whoever's on the demo's team(s).
+  const allManagers = await prisma.user.findMany({ where: { role: { in: ["MANAGER", "CEO"] } }, orderBy: { name: "asc" } });
+
+  return { demo, invitedManagers, invitedMembers, attendanceByUser, evaluationProgress, teamRoster, evaluatedDeveloperIds, allTeams, allManagers };
 }
 
 export async function getDemoForEvaluation(demoId: string, evaluatorId: string) {

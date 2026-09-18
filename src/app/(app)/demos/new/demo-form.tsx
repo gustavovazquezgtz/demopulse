@@ -196,17 +196,24 @@ export function DemoForm({ teams, allManagers }: { teams: TeamOption[]; allManag
 
       {selectedTeams.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-sm">2. Invited Managers</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-sm">2. Invited Managers</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Team managers are pre-selected. Add any other manager too — evaluations aren&apos;t limited to a developer&apos;s own team.
+            </p>
+          </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {allManagers
-                .filter((m) => invitedManagerIds.includes(m.id) || selectedTeams.some((t) => t.managers.some((tm) => tm.id === m.id)))
-                .map((m) => (
+              {allManagers.map((m) => {
+                const isTeamManager = selectedTeams.some((t) => t.managers.some((tm) => tm.id === m.id));
+                return (
                   <label key={m.id} className="flex items-center gap-2 text-sm">
                     <Checkbox checked={invitedManagerIds.includes(m.id)} onCheckedChange={() => toggleManager(m.id)} />
                     {m.name}
+                    {isTeamManager && <Badge variant="secondary" className="text-[9px]">Team</Badge>}
                   </label>
-                ))}
+                );
+              })}
             </div>
             {errors.invitedManagerIds && <p className="text-xs text-critical">{errors.invitedManagerIds.message}</p>}
 

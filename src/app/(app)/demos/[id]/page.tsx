@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { UrlCards } from "@/components/projects/url-cards";
 import { AttendanceForm } from "@/components/demos/attendance-form";
 import { EditParticipantsForm } from "@/components/demos/edit-participants-form";
+import { EditManagersForm } from "@/components/demos/edit-managers-form";
 import { EditTeamsForm } from "@/components/demos/edit-teams-form";
 import { RescheduleForm } from "@/components/demos/reschedule-form";
 import { ReopenButton } from "@/components/demos/reopen-button";
@@ -37,7 +38,7 @@ export default async function DemoDetailPage({ params }: { params: Promise<{ id:
   const data = await getDemoDetail(id);
   if (!data) notFound();
 
-  const { demo, invitedManagers, invitedMembers, attendanceByUser, evaluationProgress, teamRoster, evaluatedDeveloperIds, allTeams } = data;
+  const { demo, invitedManagers, invitedMembers, attendanceByUser, evaluationProgress, teamRoster, evaluatedDeveloperIds, allTeams, allManagers } = data;
 
   // Any manager or CEO can manage any demo — global visibility/edit rights,
   // not scoped to who originally hosted or was invited (explicit product
@@ -225,6 +226,23 @@ export default async function DemoDetailPage({ params }: { params: Promise<{ id:
                 members: t.members.map((m) => ({ userId: m.userId, name: m.user.name })),
               }))}
               initialSelectedIds={demo.teams.map((t) => t.teamId)}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {canManage && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Edit Invited Managers</CardTitle>
+            <p className="text-xs text-muted-foreground">Any manager can evaluate any developer — not just their own team&apos;s.</p>
+          </CardHeader>
+          <CardContent>
+            <EditManagersForm
+              demoId={demo.id}
+              allManagers={allManagers.map((m) => ({ id: m.id, name: m.name }))}
+              initialSelectedIds={invitedManagers.map((m) => m.userId)}
+              hostManagerId={demo.hostManagerId}
             />
           </CardContent>
         </Card>

@@ -213,6 +213,56 @@ export async function reopenDemo(demoId: string) {
  * which case they're left alone (never destroy history). Only meaningful
  * before the session starts; teams are locked once it's live.
  */
+/**
+ * Invites or removes managers as evaluators on any demo, at any stage —
+ * evaluations aren't limited to a developer's own team manager (any manager
+ * can evaluate any developer), so the invite list must stay editable after
+ * creation too, not just during scheduling. Adding a manager to an
+ * already-live session also marks them PRESENT so they can evaluate right
+ * away, same principle as reopenDemo/startDemo.
+ */
+export async function updateDemoManagers(demoId: string, managerIds: string[]) {
+  const session = await requireSession();
+  const demo = await prisma.demo.findUniqueOrThrow({ where: { id: demoId } });
+
+  const current = await prisma.demoInvitee.findMany({ where: { demoId, role: "EVALUATOR_MANAGER" } });
+  const currentIds = new Set(current.map((i) => i.userId));
+  const nextIds = new Set(managerIds.length ? managerIds : [demo.hostManagerId]);
+  nextIds.add(demo.hostManagerId); // the host manager is always an invited evaluator
+
+  const toAdd = [...nextIds].filter((id) => !currentIds.has(id));
+  const toRemove = [...currentIds].filter((id) => !nextIds.has(id));
+
+  for (const userId of toAdd) {
+    await prisma.demoInvitee.upsert({
+      where: { demoId_userId_role: { demoId, userId, role: "EVALUATOR_MANAGER" } },
+      update: {},
+      create: { demoId, userId, role: "EVALUATOR_MANAGER" },
+    });
+    if (demo.status !== "SCHEDULED") {
+      await prisma.demoAttendee.upsert({
+        where: { demoId_userId: { demoId, userId } },
+        update: { status: "PRESENT" },
+        create: { demoId, userId, status: "PRESENT" },
+      });
+    }
+  }
+  for (const userId of toRemove) {
+    if (userId === demo.hostManagerId) continue; // never remove the host manager this way
+    await prisma.demoInvitee.deleteMany({ where: { demoId, userId, role: "EVALUATOR_MANAGER" } });
+  }
+
+  await prisma.auditLog.create({
+    data: { userId: session.user.id, entityType: "Demo", entityId: demoId, action: "UPDATE_MANAGERS", after: { added: toAdd, removed: toRemove } },
+  });
+
+  revalidatePath(`/demos/${demoId}`);
+  revalidatePath(`/demos/${demoId}/evaluate`);
+  revalidatePath("/demos");
+
+  return { added: toAdd.length, removed: toRemove.length };
+}
+
 export async function updateDemoTeams(demoId: string, teamIds: string[]) {
   const session = await requireSession();
   const demo = await prisma.demo.findUniqueOrThrow({ where: { id: demoId }, include: { teams: true } });
