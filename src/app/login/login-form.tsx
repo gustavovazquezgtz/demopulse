@@ -7,16 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
-const DEMO_PASSWORD = "Password123!";
-
-export function LoginForm({
-  demoAccounts,
-}: {
-  demoAccounts: { name: string; email: string; role: string }[];
-}) {
+export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -51,26 +44,6 @@ export function LoginForm({
             {loading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
-
-        <div className="mt-6 border-t border-border pt-4">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Quick demo access</p>
-          <div className="flex flex-col gap-1.5">
-            {demoAccounts.map((a) => (
-              <button
-                key={a.email}
-                type="button"
-                onClick={() => {
-                  setEmail(a.email);
-                  setPassword(DEMO_PASSWORD);
-                }}
-                className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-surface-muted transition-colors"
-              >
-                <span>{a.name}</span>
-                <Badge variant={a.role === "CEO" ? "info" : "secondary"}>{a.role}</Badge>
-              </button>
-            ))}
-          </div>
-        </div>
       </CardContent>
     </Card>
   );
