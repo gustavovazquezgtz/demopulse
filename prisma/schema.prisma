@@ -160,6 +160,7 @@ model User {
   // Demos
   demosHosted           Demo[]             @relation("HostManager")
   demosCreated          Demo[]             @relation("CreatedBy")
+  demosStarted          Demo[]             @relation("StartedBy")
   demoInvitations       DemoInvitee[]
   demoAttendances       DemoAttendee[]     @relation("Attendee")
   deliverableOwnerships DeliverableOwner[]
@@ -327,9 +328,12 @@ model Demo {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   reopenedAt    DateTime? // set whenever a COMPLETED session is reopened for edits (section 21 audit trail)
+  startedById   String? // the invited manager who actually started the session (Scheduled -> In Progress)
+  startedAt     DateTime?
 
-  hostManager User @relation("HostManager", fields: [hostManagerId], references: [id])
-  createdBy   User @relation("CreatedBy", fields: [createdById], references: [id])
+  hostManager User  @relation("HostManager", fields: [hostManagerId], references: [id])
+  createdBy   User  @relation("CreatedBy", fields: [createdById], references: [id])
+  startedBy   User? @relation("StartedBy", fields: [startedById], references: [id])
 
   // A demo can involve multiple teams presenting together (e.g. two squads
   // sharing a session) and, correspondingly, multiple projects.

@@ -15,14 +15,14 @@ export const urlInputSchema = z.object({
     .default("OTHER"),
 });
 
-// A single Team selection drives everything else — the manager and project
-// are derived from the team server-side, so the client never submits them
-// as independent choices. See createDemo() for the derivation.
+// Team selection drives everything else — projects come along for free via
+// each team's existing ProjectTeam link(s), so nobody re-selects work
+// that's already implied by the team(s). See createDemo() for derivation.
 export const createDemoSchema = z.object({
   title: z.string().min(3, "Session name is required"),
-  teamId: z.string().min(1, "Select a team"),
-  hostManagerId: z.string().min(1, "Manager is required"),
-  additionalManagerIds: z.array(z.string()).default([]),
+  teamIds: z.array(z.string()).min(1, "Select at least one team"),
+  hostManagerId: z.string().min(1, "Select a host manager"),
+  invitedManagerIds: z.array(z.string()).min(1, "Select at least one manager"),
   engineerIds: z.array(z.string()).min(1, "Select at least one engineer"),
   date: z.string().min(1, "Date is required"),
   startTime: z.string().min(1, "Start time is required"),

@@ -172,7 +172,7 @@ export async function getTeamComparison(scope: Scope, opts: { sort?: string; dir
 
 export async function getPendingEvaluations(managerId: string) {
   const invites = await prisma.demoInvitee.findMany({
-    where: { userId: managerId, role: "EVALUATOR_MANAGER", demo: { status: "COMPLETED" } },
+    where: { userId: managerId, role: "EVALUATOR_MANAGER", demo: { status: { in: ["IN_PROGRESS", "COMPLETED"] } } },
     include: {
       demo: { include: { projects: { include: { project: true } }, teams: { include: { team: true } } } },
     },

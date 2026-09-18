@@ -9,12 +9,14 @@ export async function listDemos(scope: Scope, opts: { status?: string; sort?: st
       ...(scope.teamIds ? { teams: { some: { teamId: { in: scope.teamIds } } } } : {}),
       ...(opts.status ? { status: opts.status as "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" } : {}),
     },
-    include: { teams: { include: { team: true } }, hostManager: true },
+    include: { teams: { include: { team: true } }, hostManager: true, invitees: true },
   });
 
   const rows = demos.map((d) => ({
     ...d,
     teamNames: d.teams.map((t) => t.team.name).join(", "), // "Team / Project" — one concept, see section 7
+    teamCount: d.teams.length,
+    participantCount: d.invitees.filter((i) => i.role === "ATTENDEE_MEMBER").length,
     hostManagerName: d.hostManager.name,
   }));
 
@@ -28,6 +30,7 @@ export async function getDemoDetail(id: string) {
       projects: { include: { project: true } },
       teams: { include: { team: { include: { members: { include: { user: true } } } } } },
       hostManager: true,
+      startedBy: true,
       urls: true,
       invitees: { include: { user: true } },
       attendees: { include: { user: true } },
@@ -59,7 +62,14 @@ export async function getDemoDetail(id: string) {
   const teamRoster = [...new Map(demo.teams.flatMap((t) => t.team.members.map((m) => [m.userId, m.user]))).values()];
   const evaluatedDeveloperIds = new Set(demo.evaluations.map((e) => e.developerId));
 
-  return { demo, invitedManagers, invitedMembers, attendanceByUser, evaluationProgress, teamRoster, evaluatedDeveloperIds };
+  // Every team in the org — lets a Scheduled session's team list be edited
+  // (add/remove) without a separate page.
+  const allTeams = await prisma.team.findMany({
+    orderBy: { name: "asc" },
+    include: { managers: { include: { user: true } }, members: { include: { user: true } } },
+  });
+
+  return { demo, invitedManagers, invitedMembers, attendanceByUser, evaluationProgress, teamRoster, evaluatedDeveloperIds, allTeams };
 }
 
 export async function getDemoForEvaluation(demoId: string, evaluatorId: string) {
@@ -67,7 +77,7 @@ export async function getDemoForEvaluation(demoId: string, evaluatorId: string) 
     where: { id: demoId },
     include: {
       projects: { include: { project: true } },
-      teams: { include: { team: true } },
+      teams: { include: { team: { include: { members: true } } } },
       attendees: { include: { user: true } },
       invitees: true,
     },
@@ -79,6 +89,17 @@ export async function getDemoForEvaluation(demoId: string, evaluatorId: string) 
 
   const developers = demo.attendees.filter((a) => a.status === "PRESENT" && a.user.role === "DEVELOPER").map((a) => a.user);
 
+  // Which of this demo's teams each developer belongs to — drives the
+  // Evaluation Matrix's team filter and the "Team / Project" column.
+  const teamByDeveloper = new Map<string, { id: string; name: string }[]>();
+  for (const dt of demo.teams) {
+    for (const m of dt.team.members) {
+      const list = teamByDeveloper.get(m.userId) ?? [];
+      list.push({ id: dt.team.id, name: dt.team.name });
+      teamByDeveloper.set(m.userId, list);
+    }
+  }
+
   const criteria = await prisma.evaluationCriterion.findMany({ where: { active: true }, orderBy: { order: "asc" } });
 
   const existing = await prisma.evaluation.findMany({
@@ -87,7 +108,15 @@ export async function getDemoForEvaluation(demoId: string, evaluatorId: string) 
   });
   const existingByDeveloper = new Map(existing.map((e) => [e.developerId, e]));
 
-  return { demo, developers, criteria, existingByDeveloper, canEvaluate: evaluatorInvited && evaluatorAttended };
+  return {
+    demo,
+    developers,
+    teams: demo.teams.map((t) => ({ id: t.team.id, name: t.team.name })),
+    teamByDeveloper,
+    criteria,
+    existingByDeveloper,
+    canEvaluate: evaluatorInvited && evaluatorAttended,
+  };
 }
 
 export async function getDemoResults(demoId: string) {

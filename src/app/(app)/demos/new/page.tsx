@@ -19,8 +19,8 @@ export default async function NewDemoPage() {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6">
-        <h1 className="text-xl font-semibold text-foreground">Create Demo Session</h1>
-        <p className="text-sm text-muted-foreground">Pick a team — everything else is filled in for you.</p>
+        <h1 className="text-xl font-semibold text-foreground">Schedule Demo Session</h1>
+        <p className="text-sm text-muted-foreground">Pick one or more teams — managers and engineers are filled in for you. This only schedules the session; an invited manager starts it later.</p>
       </div>
       <DemoForm
         teams={teams.map((t) => ({

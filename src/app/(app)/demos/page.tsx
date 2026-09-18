@@ -25,6 +25,7 @@ export default async function DemosPage({ searchParams }: { searchParams: Promis
   const tabs = [
     { label: "All", value: undefined },
     { label: "Scheduled", value: "SCHEDULED" },
+    { label: "In Progress", value: "IN_PROGRESS" },
     { label: "Completed", value: "COMPLETED" },
     { label: "Cancelled", value: "CANCELLED" },
   ];
@@ -70,7 +71,9 @@ export default async function DemosPage({ searchParams }: { searchParams: Promis
               <TableHeader>
                 <TableRow>
                   <TableHead><SortableHeader column="title" label="Demo" defaultDir="asc" /></TableHead>
-                  <TableHead>Team / Project</TableHead>
+                  <TableHead><SortableHeader column="teamNames" label="Team / Project" defaultDir="asc" /></TableHead>
+                  <TableHead><SortableHeader column="teamCount" label="Teams" /></TableHead>
+                  <TableHead><SortableHeader column="participantCount" label="Participants" /></TableHead>
                   <TableHead><SortableHeader column="hostManagerName" label="Host" defaultDir="asc" /></TableHead>
                   <TableHead><SortableHeader column="date" label="Date" /></TableHead>
                   <TableHead><SortableHeader column="status" label="Status" defaultDir="asc" /></TableHead>
@@ -85,6 +88,8 @@ export default async function DemosPage({ searchParams }: { searchParams: Promis
                       </Link>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{d.teamNames}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{d.teamCount}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{d.participantCount}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{d.hostManagerName}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{d.date.toLocaleDateString()}</TableCell>
                     <TableCell>

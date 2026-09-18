@@ -9,6 +9,13 @@ export default async function EvaluateDemoPage({ params }: { params: Promise<{ i
   const data = await getDemoForEvaluation(id, session.user.id);
   if (!data) notFound();
 
+  // The Evaluation Matrix only exists once the call has actually started —
+  // a Scheduled session has nobody marked present yet, so there's nothing
+  // to evaluate and no accidental early access.
+  if (data.demo.status === "SCHEDULED") {
+    redirect(`/demos/${id}`);
+  }
+
   if (!data.canEvaluate) {
     redirect(`/demos/${id}`);
   }
@@ -26,6 +33,7 @@ export default async function EvaluateDemoPage({ params }: { params: Promise<{ i
     <EvaluateClient
       demoId={id}
       demoTitle={data.demo.title}
+      teams={data.teams}
       criteria={data.criteria.map((c) => ({ id: c.id, text: c.text, dimension: c.dimension }))}
       developers={data.developers.map((d) => {
         const existing = data.existingByDeveloper.get(d.id);
@@ -33,6 +41,7 @@ export default async function EvaluateDemoPage({ params }: { params: Promise<{ i
           id: d.id,
           name: d.name,
           title: d.title,
+          teams: data.teamByDeveloper.get(d.id) ?? [],
           completed: existing?.status === "COMPLETED",
           overallComment: existing?.overallComment ?? "",
           strengths: existing?.strengths ?? "",

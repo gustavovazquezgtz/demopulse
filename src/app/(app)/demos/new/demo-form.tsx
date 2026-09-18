@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Plus, Trash2, Users } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import type { z } from "zod";
 import { createDemoSchema, type CreateDemoInput } from "@/lib/validations/demo";
 import { createDemo } from "@/lib/actions/demos";
@@ -15,9 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { initials } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 type FormValues = z.input<typeof createDemoSchema>;
 
@@ -31,26 +30,30 @@ interface TeamOption extends Option {
   members: Option[];
 }
 
+const SUGGESTED_TIMES = ["16:00", "16:30", "16:45"];
+
+function formatTime12h(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
 function todayDateInput() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function nowTimeInput() {
-  const d = new Date();
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-function suggestedTitle(teamName: string, dateStr: string) {
+function suggestedTitle(teamNames: string[], dateStr: string) {
   const d = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
   const formatted = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  return `${teamName} Demo — ${formatted}`;
+  const label = teamNames.length === 0 ? "Demo" : teamNames.length === 1 ? teamNames[0] : "Multi-Team Demo";
+  return `${label} — ${formatted}`;
 }
 
 export function DemoForm({ teams, allManagers }: { teams: TeamOption[]; allManagers: Option[] }) {
   const [pending, startTransition] = useTransition();
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showOtherEvaluators, setShowOtherEvaluators] = useState(false);
   const titleWasAutoFilled = useRef(true);
 
   const {
@@ -64,12 +67,12 @@ export function DemoForm({ teams, allManagers }: { teams: TeamOption[]; allManag
     resolver: zodResolver(createDemoSchema),
     defaultValues: {
       title: "",
-      teamId: "",
+      teamIds: [],
       hostManagerId: "",
-      additionalManagerIds: [],
+      invitedManagerIds: [],
       engineerIds: [],
       date: todayDateInput(),
-      startTime: nowTimeInput(),
+      startTime: "",
       deliverables: [],
       urls: [],
     },
@@ -78,39 +81,62 @@ export function DemoForm({ teams, allManagers }: { teams: TeamOption[]; allManag
   const deliverableArray = useFieldArray({ control, name: "deliverables" });
   const urlArray = useFieldArray({ control, name: "urls" });
 
-  const teamId = watch("teamId");
+  const teamIds = watch("teamIds") ?? [];
   const hostManagerId = watch("hostManagerId");
-  const additionalManagerIds = watch("additionalManagerIds") ?? [];
+  const invitedManagerIds = watch("invitedManagerIds") ?? [];
   const engineerIds = watch("engineerIds") ?? [];
   const title = watch("title");
   const date = watch("date");
+  const startTime = watch("startTime");
 
-  const selectedTeam = teams.find((t) => t.id === teamId) ?? null;
+  const selectedTeams = teams.filter((t) => teamIds.includes(t.id));
 
-  // Selecting a team is the single source of truth: it drives the manager,
-  // the roster (all pre-checked), and the suggested session name in one go.
-  function selectTeam(id: string) {
-    const team = teams.find((t) => t.id === id);
-    if (!team) return;
-    setValue("teamId", id, { shouldValidate: true });
-    setValue("hostManagerId", team.managers[0]?.id ?? "", { shouldValidate: true });
-    setValue("additionalManagerIds", [], { shouldValidate: true });
-    setValue(
-      "engineerIds",
-      team.members.map((m) => m.id),
-      { shouldValidate: true }
-    );
+  function refreshTitle(nextTeams: TeamOption[]) {
     if (titleWasAutoFilled.current) {
-      setValue("title", suggestedTitle(team.name, watch("date")), { shouldValidate: true });
+      setValue("title", suggestedTitle(nextTeams.map((t) => t.name), date), { shouldValidate: true });
     }
-    setShowOtherEvaluators(false);
+  }
+
+  // Selecting a team is the single source of truth: adding one merges in
+  // its manager(s)/members (deduped — a shared person is never listed
+  // twice); removing one drops only the people who aren't needed by any
+  // OTHER still-selected team, so manual overrides on shared teams survive.
+  function toggleTeam(teamId: string) {
+    const team = teams.find((t) => t.id === teamId);
+    if (!team) return;
+    const isSelected = teamIds.includes(teamId);
+    const nextTeamIds = isSelected ? teamIds.filter((id) => id !== teamId) : [...teamIds, teamId];
+    setValue("teamIds", nextTeamIds, { shouldValidate: true });
+
+    if (!isSelected) {
+      const newManagerIds = team.managers.map((m) => m.id).filter((id) => !invitedManagerIds.includes(id));
+      const newEngineerIds = team.members.map((m) => m.id).filter((id) => !engineerIds.includes(id));
+      const nextManagerIds = [...invitedManagerIds, ...newManagerIds];
+      setValue("invitedManagerIds", nextManagerIds, { shouldValidate: true });
+      setValue("engineerIds", [...engineerIds, ...newEngineerIds], { shouldValidate: true });
+      if (!hostManagerId && team.managers[0]) setValue("hostManagerId", team.managers[0].id, { shouldValidate: true });
+    } else {
+      const remaining = teams.filter((t) => nextTeamIds.includes(t.id));
+      const stillNeededManagers = new Set(remaining.flatMap((t) => t.managers.map((m) => m.id)));
+      const stillNeededEngineers = new Set(remaining.flatMap((t) => t.members.map((m) => m.id)));
+      const droppedManagers = new Set(team.managers.map((m) => m.id).filter((id) => !stillNeededManagers.has(id)));
+      const droppedEngineers = new Set(team.members.map((m) => m.id).filter((id) => !stillNeededEngineers.has(id)));
+      const nextManagerIds = invitedManagerIds.filter((id) => !droppedManagers.has(id));
+      setValue("invitedManagerIds", nextManagerIds, { shouldValidate: true });
+      setValue("engineerIds", engineerIds.filter((id) => !droppedEngineers.has(id)), { shouldValidate: true });
+      if (droppedManagers.has(hostManagerId)) {
+        setValue("hostManagerId", nextManagerIds[0] ?? "", { shouldValidate: true });
+      }
+    }
+
+    refreshTitle(teams.filter((t) => nextTeamIds.includes(t.id)));
   }
 
   // Keep the suggested title in sync with date changes, but only while the
   // user hasn't typed their own — once they edit it, it's theirs.
   useEffect(() => {
-    if (selectedTeam && titleWasAutoFilled.current) {
-      setValue("title", suggestedTitle(selectedTeam.name, date), { shouldValidate: true });
+    if (titleWasAutoFilled.current) {
+      setValue("title", suggestedTitle(selectedTeams.map((t) => t.name), date), { shouldValidate: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
@@ -120,16 +146,25 @@ export function DemoForm({ teams, allManagers }: { teams: TeamOption[]; allManag
     setValue("engineerIds", next, { shouldValidate: true });
   }
 
-  function toggleAdditionalManager(id: string) {
-    const next = additionalManagerIds.includes(id) ? additionalManagerIds.filter((x) => x !== id) : [...additionalManagerIds, id];
-    setValue("additionalManagerIds", next, { shouldValidate: true });
+  function toggleManager(id: string) {
+    const next = invitedManagerIds.includes(id) ? invitedManagerIds.filter((x) => x !== id) : [...invitedManagerIds, id];
+    setValue("invitedManagerIds", next, { shouldValidate: true });
+    if (!next.includes(hostManagerId)) setValue("hostManagerId", next[0] ?? "", { shouldValidate: true });
   }
 
-  const primaryManager = selectedTeam?.managers.find((m) => m.id === hostManagerId) ?? selectedTeam?.managers[0] ?? null;
-  const selectedEngineers = selectedTeam?.members.filter((m) => engineerIds.includes(m.id)) ?? [];
-  const otherManagerOptions = allManagers.filter((m) => m.id !== hostManagerId);
+  // Each engineer is shown once, under the first selected team that claims
+  // them — dedupes shared members while still surfacing team association.
+  const renderedEngineerIds = new Set<string>();
+  const engineersByTeam = selectedTeams.map((team) => {
+    const members = team.members.filter((m) => !renderedEngineerIds.has(m.id));
+    members.forEach((m) => renderedEngineerIds.add(m.id));
+    return { team, members };
+  });
 
-  const canStart = Boolean(teamId && hostManagerId && engineerIds.length > 0 && title.trim().length >= 3 && date);
+  const selectedEngineerCount = engineerIds.length;
+  const canStart = Boolean(
+    teamIds.length > 0 && hostManagerId && invitedManagerIds.length > 0 && engineerIds.length > 0 && title.trim().length >= 3 && date && startTime
+  );
 
   const onSubmit = (data: FormValues) => {
     startTransition(async () => {
@@ -137,7 +172,7 @@ export function DemoForm({ teams, allManagers }: { teams: TeamOption[]; allManag
         await createDemo(data as CreateDemoInput);
       } catch (e) {
         if (e instanceof Error && e.message === "NEXT_REDIRECT") return;
-        toast.error(e instanceof Error ? e.message : "Could not create demo session");
+        toast.error(e instanceof Error ? e.message : "Could not schedule demo session");
       }
     });
   };
@@ -145,103 +180,126 @@ export function DemoForm({ teams, allManagers }: { teams: TeamOption[]; allManag
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
       <Card>
-        <CardContent className="flex flex-col gap-4 pt-5">
-          <Field label="Team" error={errors.teamId?.message}>
-            <Select value={teamId || undefined} onValueChange={selectTeam}>
-              <SelectTrigger><SelectValue placeholder="Select team" /></SelectTrigger>
-              <SelectContent>
-                {teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </Field>
+        <CardHeader><CardTitle className="text-sm">1. Teams / Projects</CardTitle></CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5 rounded-md border border-border p-2.5">
+            {teams.map((t) => (
+              <label key={t.id} className="flex items-center gap-2 text-sm">
+                <Checkbox checked={teamIds.includes(t.id)} onCheckedChange={() => toggleTeam(t.id)} />
+                {t.name}
+              </label>
+            ))}
+          </div>
+          {errors.teamIds && <p className="text-xs text-critical">{errors.teamIds.message}</p>}
+        </CardContent>
+      </Card>
 
-          {selectedTeam && (
-            <div className="flex items-center justify-between rounded-md border border-border bg-surface-muted/50 px-3 py-2">
-              <div className="flex items-center gap-2 text-sm">
-                <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-muted-foreground">
-                  {selectedTeam.managers.length ? selectedTeam.managers.map((m) => m.name).join(", ") : "No manager assigned"} ·{" "}
-                  {selectedTeam.members.length} {selectedTeam.members.length === 1 ? "engineer" : "engineers"}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {selectedTeam && selectedTeam.managers.length > 1 && (
-            <Field label="Manager" error={errors.hostManagerId?.message}>
-              <Select value={hostManagerId || undefined} onValueChange={(v) => setValue("hostManagerId", v, { shouldValidate: true })}>
-                <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
-                <SelectContent>
-                  {selectedTeam.managers.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
-
-          {selectedTeam && selectedTeam.managers.length === 1 && (
-            <Field label="Manager">
-              <div className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2">
-                <Avatar className="h-6 w-6"><AvatarFallback className="text-[10px]">{initials(primaryManager?.name ?? "")}</AvatarFallback></Avatar>
-                <span className="text-sm font-medium text-foreground">{primaryManager?.name}</span>
-              </div>
-            </Field>
-          )}
-
-          {selectedTeam && (
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowOtherEvaluators((v) => !v)}
-                className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-              >
-                {showOtherEvaluators ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                Add other evaluators (optional)
-              </button>
-              {showOtherEvaluators && (
-                <div className="mt-2 grid grid-cols-2 gap-2 rounded-md border border-border p-2.5 sm:grid-cols-3">
-                  {otherManagerOptions.map((m) => (
-                    <label key={m.id} className="flex items-center gap-2 text-sm">
-                      <Checkbox checked={additionalManagerIds.includes(m.id)} onCheckedChange={() => toggleAdditionalManager(m.id)} />
-                      {m.name}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {selectedTeam && (
-            <Field label={`Engineers (${selectedEngineers.length} selected)`} error={errors.engineerIds?.message}>
-              <div className="flex flex-col gap-1.5 rounded-md border border-border p-2.5">
-                {selectedTeam.members.map((m) => (
+      {selectedTeams.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-sm">2. Invited Managers</CardTitle></CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {allManagers
+                .filter((m) => invitedManagerIds.includes(m.id) || selectedTeams.some((t) => t.managers.some((tm) => tm.id === m.id)))
+                .map((m) => (
                   <label key={m.id} className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={engineerIds.includes(m.id)} onCheckedChange={() => toggleEngineer(m.id)} />
+                    <Checkbox checked={invitedManagerIds.includes(m.id)} onCheckedChange={() => toggleManager(m.id)} />
                     {m.name}
                   </label>
                 ))}
-              </div>
-            </Field>
-          )}
+            </div>
+            {errors.invitedManagerIds && <p className="text-xs text-critical">{errors.invitedManagerIds.message}</p>}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Date" error={errors.date?.message}>
-              <Input type="date" {...register("date")} />
-            </Field>
-            <Field label="Start Time" error={errors.startTime?.message}>
-              <Input type="time" {...register("startTime")} />
-            </Field>
+            {invitedManagerIds.length > 1 && (
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs">Host Manager</Label>
+                <Select value={hostManagerId || undefined} onValueChange={(v) => setValue("hostManagerId", v, { shouldValidate: true })}>
+                  <SelectTrigger className="w-56"><SelectValue placeholder="Select host" /></SelectTrigger>
+                  <SelectContent>
+                    {allManagers.filter((m) => invitedManagerIds.includes(m.id)).map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {selectedTeams.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-sm">3. Participants ({selectedEngineerCount} selected)</CardTitle></CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {engineersByTeam.map(({ team, members }) => (
+              <div key={team.id} className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <span>{team.name}</span>
+                  {team.managers.length > 0 && <Badge variant="secondary" className="text-[10px]">{team.managers.map((m) => m.name).join(", ")}</Badge>}
+                </div>
+                {members.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">No other members (shared with another selected team, or none)</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 rounded-md border border-border p-2.5 sm:grid-cols-3">
+                    {members.map((m) => (
+                      <label key={m.id} className="flex items-center gap-2 text-sm">
+                        <Checkbox checked={engineerIds.includes(m.id)} onCheckedChange={() => toggleEngineer(m.id)} />
+                        {m.name}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {errors.engineerIds && <p className="text-xs text-critical">{errors.engineerIds.message}</p>}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader><CardTitle className="text-sm">4. Date &amp; Time</CardTitle></CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <Field label="Date" error={errors.date?.message}>
+            <Input type="date" {...register("date")} />
+          </Field>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Suggested Times</Label>
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTED_TIMES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setValue("startTime", t, { shouldValidate: true })}
+                  className={cn(
+                    "rounded-md border px-4 py-2 text-sm font-medium transition-colors",
+                    startTime === t ? "border-primary bg-primary-muted text-primary" : "border-border text-foreground hover:bg-surface-muted"
+                  )}
+                >
+                  {formatTime12h(t)}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <Field label="Session Name" error={errors.title?.message}>
-            <Input
-              {...register("title")}
-              onChange={(e) => {
-                titleWasAutoFilled.current = false;
-                setValue("title", e.target.value, { shouldValidate: true });
-              }}
-              placeholder="e.g. PMS Demo — Sep 17"
-            />
+          <Field label="Custom Time" error={errors.startTime?.message}>
+            <Input type="time" {...register("startTime")} className="w-40" />
           </Field>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-sm">5. Session Name</CardTitle></CardHeader>
+        <CardContent>
+          <Input
+            {...register("title")}
+            onChange={(e) => {
+              titleWasAutoFilled.current = false;
+              setValue("title", e.target.value, { shouldValidate: true });
+            }}
+            placeholder="e.g. Multi-Team Demo — Sep 25"
+          />
+          {errors.title && <p className="mt-1 text-xs text-critical">{errors.title.message}</p>}
         </CardContent>
       </Card>
 
@@ -310,28 +368,38 @@ export function DemoForm({ teams, allManagers }: { teams: TeamOption[]; allManag
         )}
       </div>
 
-      {selectedTeam && (
+      {selectedTeams.length > 0 && (
         <Card className="border-primary/20 bg-primary-muted/30">
-          <CardHeader><CardTitle className="text-sm">Demo Session Preview</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-sm">Review</CardTitle></CardHeader>
           <CardContent className="flex flex-col gap-2 text-sm">
-            <PreviewRow label="Team" value={selectedTeam.name} />
-            <PreviewRow label="Manager" value={[primaryManager?.name, ...additionalManagerIds.map((id) => allManagers.find((m) => m.id === id)?.name)].filter(Boolean).join(", ") || "—"} />
+            <PreviewRow label="Teams" value={`${selectedTeams.length} team${selectedTeams.length === 1 ? "" : "s"}`} />
             <div className="flex items-start justify-between gap-4">
-              <span className="text-muted-foreground">Engineers</span>
+              <span className="text-muted-foreground">Team / Project</span>
               <div className="flex flex-wrap justify-end gap-1">
-                {selectedEngineers.length === 0 && <span className="text-critical">None selected</span>}
-                {selectedEngineers.map((e) => <Badge key={e.id} variant="secondary">{e.name}</Badge>)}
+                {selectedTeams.map((t) => <Badge key={t.id} variant="secondary">{t.name}</Badge>)}
               </div>
             </div>
-            <PreviewRow label="Date" value={date ? new Date(`${date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"} />
+            <PreviewRow label="Managers" value={`${invitedManagerIds.length} manager${invitedManagerIds.length === 1 ? "" : "s"}`} />
+            <PreviewRow label="Engineers" value={`${selectedEngineerCount} engineer${selectedEngineerCount === 1 ? "" : "s"}`} />
+            <PreviewRow
+              label="Date &amp; Time"
+              value={
+                date && startTime
+                  ? `${new Date(`${date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} — ${formatTime12h(startTime)}`
+                  : "—"
+              }
+            />
             <PreviewRow label="Session Name" value={title || "—"} />
+            <p className="mt-1 text-xs text-muted-foreground">
+              This will be <span className="font-medium text-foreground">Scheduled</span> — an invited manager starts it later.
+            </p>
           </CardContent>
         </Card>
       )}
 
       <div className="flex justify-end gap-2">
         <Button type="submit" disabled={pending || !canStart} size="lg">
-          {pending ? "Starting..." : "Start Demo Session"}
+          {pending ? "Scheduling..." : "Schedule Demo"}
         </Button>
       </div>
     </form>

@@ -20,10 +20,16 @@ interface Criterion {
   dimension: string;
 }
 
+interface TeamRef {
+  id: string;
+  name: string;
+}
+
 interface DeveloperState {
   id: string;
   name: string;
   title: string | null;
+  teams: TeamRef[];
   completed: boolean;
   overallComment: string;
   strengths: string;
@@ -35,22 +41,36 @@ interface DeveloperState {
 export function EvaluateClient({
   demoId,
   demoTitle,
+  teams,
   criteria,
   developers: initialDevelopers,
 }: {
   demoId: string;
   demoTitle: string;
+  teams: TeamRef[];
   criteria: Criterion[];
   developers: DeveloperState[];
 }) {
   const [developers, setDevelopers] = useState(initialDevelopers);
   const [index, setIndex] = useState(0);
+  const [teamFilter, setTeamFilter] = useState<string>("ALL");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const current = developers[index];
   const completedCount = developers.filter((d) => d.completed).length;
   const allAnswered = criteria.every((c) => current.answers[c.id] !== undefined);
+
+  const visibleDevelopers = teamFilter === "ALL" ? developers : developers.filter((d) => d.teams.some((t) => t.id === teamFilter));
+
+  function selectTeamFilter(id: string) {
+    setTeamFilter(id);
+    const stillVisible = id === "ALL" || current.teams.some((t) => t.id === id);
+    if (!stillVisible) {
+      const firstMatch = developers.findIndex((d) => id === "ALL" || d.teams.some((t) => t.id === id));
+      if (firstMatch >= 0) setIndex(firstMatch);
+    }
+  }
 
   function updateCurrent(patch: Partial<DeveloperState>) {
     setDevelopers((prev) => prev.map((d, i) => (i === index ? { ...d, ...patch } : d)));
@@ -112,20 +132,49 @@ export function EvaluateClient({
         </div>
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
-        {developers.map((d, i) => (
+      {teams.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
           <button
-            key={d.id}
-            onClick={() => setIndex(i)}
+            onClick={() => selectTeamFilter("ALL")}
             className={cn(
-              "flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-              i === index ? "border-primary bg-primary-muted text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"
+              "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+              teamFilter === "ALL" ? "border-primary bg-primary-muted text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"
             )}
           >
-            {d.completed && <Check className="h-3 w-3" />}
-            {d.name.split(" ")[0]}
+            All Teams
           </button>
-        ))}
+          {teams.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => selectTeamFilter(t.id)}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                teamFilter === t.id ? "border-primary bg-primary-muted text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"
+              )}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {visibleDevelopers.map((d) => {
+          const i = developers.findIndex((dev) => dev.id === d.id);
+          return (
+            <button
+              key={d.id}
+              onClick={() => setIndex(i)}
+              className={cn(
+                "flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                i === index ? "border-primary bg-primary-muted text-primary" : "border-border text-muted-foreground hover:bg-surface-muted"
+              )}
+            >
+              {d.completed && <Check className="h-3 w-3" />}
+              {d.name.split(" ")[0]}
+            </button>
+          );
+        })}
       </div>
 
       <Card>
@@ -135,7 +184,10 @@ export function EvaluateClient({
           </Avatar>
           <div className="flex-1">
             <CardTitle>{current.name}</CardTitle>
-            <p className="text-xs text-muted-foreground">{current.title ?? "Developer"}</p>
+            <p className="text-xs text-muted-foreground">
+              {current.title ?? "Developer"}
+              {current.teams.length > 0 && <> · {current.teams.map((t) => t.name).join(", ")}</>}
+            </p>
           </div>
           {current.completed && (
             <div className="flex flex-col items-end gap-0.5">
