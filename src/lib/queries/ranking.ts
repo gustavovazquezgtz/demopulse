@@ -3,7 +3,10 @@ import type { Scope } from "./dashboard";
 import { computeTrend, dedupeScoresByDemo } from "@/lib/scoring";
 import { sortRows } from "@/lib/sort";
 
-export async function getRanking(scope: Scope, opts: { teamId?: string; sort?: string; dir?: string } = {}) {
+export async function getRanking(
+  scope: Scope,
+  opts: { teamId?: string; sort?: string; dir?: string; englishBelow?: number } = {}
+) {
   const people = await prisma.user.findMany({
     where: {
       role: "DEVELOPER",
@@ -55,9 +58,17 @@ export async function getRanking(scope: Scope, opts: { teamId?: string; sort?: s
       ai: dim("AI"),
       ux: dim("UX"),
       business: dim("Business"),
+      english: dim("English"),
       evaluationCount: p.evaluationsReceived.length,
     };
   });
 
-  return sortRows(rows, opts.sort, opts.dir, "score", "desc");
+  // "Low English" — evaluated and scoring in the same critical tier ScoreBadge
+  // already uses everywhere else (<60%), i.e. managers have marked them not
+  // fluent more often than not. People with no English data are excluded
+  // rather than lumped in as "low" — no data isn't the same as a bad score.
+  const filtered =
+    opts.englishBelow !== undefined ? rows.filter((r) => r.english !== null && r.english < opts.englishBelow!) : rows;
+
+  return sortRows(filtered, opts.sort, opts.dir, "score", "desc");
 }

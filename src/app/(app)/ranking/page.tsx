@@ -7,20 +7,57 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
 import { SortableHeader } from "@/components/ui/sortable-header";
-import { formatScore } from "@/lib/utils";
+import { formatScore, cn } from "@/lib/utils";
 
-export default async function RankingPage({ searchParams }: { searchParams: Promise<{ sort?: string; dir?: string }> }) {
+const LOW_ENGLISH_THRESHOLD = 60; // same critical-tier cutoff ScoreBadge uses everywhere
+
+export default async function RankingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string; dir?: string; english?: string }>;
+}) {
   await requireSession();
-  const { sort, dir } = await searchParams;
-  const rows = await getRanking(UNSCOPED, { sort, dir });
+  const { sort, dir, english } = await searchParams;
+  const lowEnglishOnly = english === "low";
+  const rows = await getRanking(UNSCOPED, { sort, dir, englishBelow: lowEnglishOnly ? LOW_ENGLISH_THRESHOLD : undefined });
+
+  const filterHref = (params: URLSearchParams) => `/ranking${params.toString() ? `?${params.toString()}` : ""}`;
+  const baseParams = new URLSearchParams();
+  if (sort) baseParams.set("sort", sort);
+  if (dir) baseParams.set("dir", dir);
+  const allParams = new URLSearchParams(baseParams);
+  const lowEnglishParams = new URLSearchParams(baseParams);
+  lowEnglishParams.set("english", "low");
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">Engineer Ranking</h1>
-        <p className="text-sm text-muted-foreground">
-          Every engineer in the organization, ranked by score — a pattern-finding tool, not a scoreboard.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Engineer Ranking</h1>
+          <p className="text-sm text-muted-foreground">
+            Every engineer in the organization, ranked by score — a pattern-finding tool, not a scoreboard.
+          </p>
+        </div>
+        <div className="flex gap-1 rounded-md bg-surface-muted p-1">
+          <Link
+            href={filterHref(allParams)}
+            className={cn(
+              "rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+              !lowEnglishOnly ? "bg-surface shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            All Engineers
+          </Link>
+          <Link
+            href={filterHref(lowEnglishParams)}
+            className={cn(
+              "rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+              lowEnglishOnly ? "bg-surface shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Low English only
+          </Link>
+        </div>
       </div>
 
       <Card>
@@ -38,6 +75,7 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
                 <TableHead><SortableHeader column="ai" label="AI" /></TableHead>
                 <TableHead><SortableHeader column="ux" label="UX" /></TableHead>
                 <TableHead><SortableHeader column="business" label="Business" /></TableHead>
+                <TableHead><SortableHeader column="english" label="English" /></TableHead>
                 <TableHead><SortableHeader column="evaluationCount" label="Evaluations" /></TableHead>
               </TableRow>
             </TableHeader>
@@ -62,13 +100,14 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
                   <TableCell className="text-xs text-muted-foreground">{formatScore(r.ai)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{formatScore(r.ux)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{formatScore(r.business)}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{formatScore(r.english)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{r.evaluationCount}</TableCell>
                 </TableRow>
               ))}
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={11} className="py-12 text-center text-sm text-muted-foreground">
-                    No evaluation data available yet.
+                  <TableCell colSpan={12} className="py-12 text-center text-sm text-muted-foreground">
+                    {lowEnglishOnly ? "Nobody has been marked below fluent in English yet." : "No evaluation data available yet."}
                   </TableCell>
                 </TableRow>
               )}
