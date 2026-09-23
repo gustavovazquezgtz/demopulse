@@ -23,8 +23,8 @@ export default async function EvaluateDemoPage({ params }: { params: Promise<{ i
   if (data.developers.length === 0) {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
-        <h1 className="text-lg font-semibold text-foreground">No attendees to evaluate</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Record attendance for this demo before starting evaluations.</p>
+        <h1 className="text-lg font-semibold text-foreground">No participants to evaluate</h1>
+        <p className="mt-1 text-sm text-muted-foreground">No engineers are invited to this demo session yet — add participants from the demo page.</p>
       </div>
     );
   }
@@ -42,6 +42,7 @@ export default async function EvaluateDemoPage({ params }: { params: Promise<{ i
           name: d.name,
           title: d.title,
           teams: data.teamByDeveloper.get(d.id) ?? [],
+          attendanceStatus: d.attendanceStatus,
           completed: existing?.status === "COMPLETED",
           overallComment: existing?.overallComment ?? "",
           strengths: existing?.strengths ?? "",

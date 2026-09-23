@@ -84,7 +84,7 @@ export async function getDemoForEvaluation(demoId: string, evaluatorId: string) 
       projects: { include: { project: true } },
       teams: { include: { team: { include: { members: true } } } },
       attendees: { include: { user: true } },
-      invitees: true,
+      invitees: { include: { user: true } },
     },
   });
   if (!demo) return null;
@@ -92,7 +92,14 @@ export async function getDemoForEvaluation(demoId: string, evaluatorId: string) 
   const evaluatorInvited = demo.invitees.some((i) => i.userId === evaluatorId && i.role === "EVALUATOR_MANAGER");
   const evaluatorAttended = demo.attendees.some((a) => a.userId === evaluatorId && a.status === "PRESENT");
 
-  const developers = demo.attendees.filter((a) => a.status === "PRESENT" && a.user.role === "DEVELOPER").map((a) => a.user);
+  // Every invited engineer is evaluable, not just whoever ended up marked
+  // PRESENT — a manager who reopens a session must be able to evaluate
+  // someone recorded as Absent/Excused if they choose to; attendance is
+  // informational here, not a hard gate.
+  const attendanceByUser = new Map(demo.attendees.map((a) => [a.userId, a.status]));
+  const developers = demo.invitees
+    .filter((i) => i.role === "ATTENDEE_MEMBER")
+    .map((i) => ({ ...i.user, attendanceStatus: attendanceByUser.get(i.userId) ?? null }));
 
   // Which of this demo's teams each developer belongs to — drives the
   // Evaluation Matrix's team filter and the "Team / Project" column.

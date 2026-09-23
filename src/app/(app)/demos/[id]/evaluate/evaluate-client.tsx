@@ -30,6 +30,7 @@ interface DeveloperState {
   name: string;
   title: string | null;
   teams: TeamRef[];
+  attendanceStatus: "PRESENT" | "ABSENT" | "EXCUSED" | null;
   completed: boolean;
   overallComment: string;
   strengths: string;
@@ -172,6 +173,9 @@ export function EvaluateClient({
             >
               {d.completed && <Check className="h-3 w-3" />}
               {d.name.split(" ")[0]}
+              {d.attendanceStatus && d.attendanceStatus !== "PRESENT" && (
+                <span className="h-1.5 w-1.5 rounded-full bg-warning" title={d.attendanceStatus} />
+              )}
             </button>
           );
         })}
@@ -183,7 +187,14 @@ export function EvaluateClient({
             <AvatarFallback>{initials(current.name)}</AvatarFallback>
           </Avatar>
           <div className="flex-1">
-            <CardTitle>{current.name}</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle>{current.name}</CardTitle>
+              {current.attendanceStatus && current.attendanceStatus !== "PRESENT" && (
+                <Badge variant="warning" className="text-[10px]">
+                  Marked {current.attendanceStatus.charAt(0) + current.attendanceStatus.slice(1).toLowerCase()} — still evaluable
+                </Badge>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               {current.title ?? "Developer"}
               {current.teams.length > 0 && <> · {current.teams.map((t) => t.name).join(", ")}</>}

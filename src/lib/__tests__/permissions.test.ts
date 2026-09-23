@@ -104,10 +104,17 @@ describe("canEvaluate (sections 11, 58, 69)", () => {
     expect(result.reason).toMatch(/not invited/i);
   });
 
-  it("denies evaluation when the developer did not attend the demo", async () => {
+  it("still allows evaluating a developer recorded as Absent — attendance is informational, not a hard gate (a manager reopening a session must be able to evaluate them anyway)", async () => {
     const result = await canEvaluate(demo1.id, managerA.id, developerAbsent.id);
+    expect(result.ok).toBe(true);
+  });
+
+  it("denies evaluating someone who was never invited to the demo at all", async () => {
+    const uninvited = await prisma.user.create({ data: { name: "Never Invited Dev", email: `test-dev-uninvited-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    const result = await canEvaluate(demo1.id, managerA.id, uninvited.id);
     expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/did not attend/i);
+    expect(result.reason).toMatch(/not part of this demo/i);
+    await prisma.user.delete({ where: { id: uninvited.id } });
   });
 
   it("allows a guest manager from a different team to evaluate, as long as both attended and the manager was invited as evaluator", async () => {
@@ -149,15 +156,17 @@ describe("evaluation scoring integrity", () => {
     }
   });
 
-  it("every evaluation in the database is attributable to a demo where both the evaluator and developer attended", async () => {
+  it("every evaluation in the database has an evaluator who actually attended and was invited to evaluate, and a developer who was invited to the session (attendance status itself is not required)", async () => {
     const evaluations = await prisma.evaluation.findMany({ take: 25 });
     for (const e of evaluations) {
-      const [evaluatorAttendance, developerAttendance] = await Promise.all([
+      const [evaluatorInvite, evaluatorAttendance, developerInvite] = await Promise.all([
+        prisma.demoInvitee.findFirst({ where: { demoId: e.demoId, userId: e.evaluatorId, role: "EVALUATOR_MANAGER" } }),
         prisma.demoAttendee.findFirst({ where: { demoId: e.demoId, userId: e.evaluatorId } }),
-        prisma.demoAttendee.findFirst({ where: { demoId: e.demoId, userId: e.developerId } }),
+        prisma.demoInvitee.findFirst({ where: { demoId: e.demoId, userId: e.developerId, role: "ATTENDEE_MEMBER" } }),
       ]);
+      expect(evaluatorInvite).not.toBeNull();
       expect(evaluatorAttendance?.status).toBe("PRESENT");
-      expect(developerAttendance?.status).toBe("PRESENT");
+      expect(developerInvite).not.toBeNull();
     }
   });
 });
