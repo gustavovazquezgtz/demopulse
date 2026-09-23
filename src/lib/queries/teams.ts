@@ -17,12 +17,15 @@ export async function listTeams(scope: Scope, opts: { sort?: string; dir?: strin
 
   const results = [];
   for (const t of teams) {
+    // Scoped by the developer's own team membership — a multi-team demo
+    // must never let one team's evaluations count toward another team just
+    // because they shared a session.
     const evaluations = await prisma.evaluation.findMany({
-      where: { status: "COMPLETED", demo: { teams: { some: { teamId: t.id } } } },
+      where: { status: "COMPLETED", developer: { teamMemberships: { some: { teamId: t.id } } } },
       select: { score: true, developerId: true },
     });
     const attendance = await prisma.demoAttendee.findMany({
-      where: { demo: { teams: { some: { teamId: t.id } } } },
+      where: { user: { teamMemberships: { some: { teamId: t.id } } } },
       select: { status: true },
     });
     const avgScore = averageScore(evaluations.map((e) => e.score));
@@ -75,11 +78,12 @@ export async function getTeamDetail(id: string) {
     include: { projects: { include: { project: true } } },
     orderBy: { date: "desc" },
   });
+  // Scoped by the developer's own team membership — see listTeams() above.
   const evaluations = await prisma.evaluation.findMany({
-    where: { status: "COMPLETED", demo: { teams: { some: { teamId: id } } } },
+    where: { status: "COMPLETED", developer: { teamMemberships: { some: { teamId: id } } } },
     include: { answers: { include: { criterion: true } } },
   });
-  const attendance = await prisma.demoAttendee.findMany({ where: { demo: { teams: { some: { teamId: id } } } } });
+  const attendance = await prisma.demoAttendee.findMany({ where: { user: { teamMemberships: { some: { teamId: id } } } } });
 
   const avgScore = averageScore(evaluations.map((e) => e.score));
   const attendanceRate = attendance.length ? (attendance.filter((a) => a.status === "PRESENT").length / attendance.length) * 100 : 0;

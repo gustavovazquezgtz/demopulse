@@ -25,6 +25,10 @@ describe("AI insight pipeline output", () => {
     project = await prisma.project.create({ data: { name: `Fixture Project ${Date.now()}`, status: "ACTIVE" } });
     decliningDev = await prisma.user.create({ data: { name: "Fixture Declining Dev", email: `fixture-dev-d-${Date.now()}@test.local`, role: "DEVELOPER" } });
     strongDev = await prisma.user.create({ data: { name: "Fixture Strong Dev", email: `fixture-dev-s-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    // Team-level scoring is keyed off actual TeamMember rows, not just "the
+    // demo happened to be tagged with this team" (a multi-team demo must
+    // never leak one team's evaluations into another's score).
+    await prisma.teamMember.createMany({ data: [{ teamId: team.id, userId: decliningDev.id }, { teamId: team.id, userId: strongDev.id }] });
 
     // 4 rounds: decliningDev's business-understanding answer flips to "no"
     // from round 2 onward and every dimension trends down; strongDev scores

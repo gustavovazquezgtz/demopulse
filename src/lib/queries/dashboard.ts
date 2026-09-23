@@ -54,7 +54,7 @@ export async function getOrgStats(scope: Scope) {
       select: { score: true, developerId: true },
     }),
     prisma.demoAttendee.findMany({
-      where: scope.teamIds ? { demo: { teams: { some: { teamId: { in: scope.teamIds } } } } } : {},
+      where: scope.teamIds ? { user: { teamMemberships: { some: { teamId: { in: scope.teamIds } } } } } : {},
       select: { status: true },
     }),
   ]);
@@ -138,8 +138,12 @@ export async function getTeamComparison(scope: Scope, opts: { sort?: string; dir
   });
   const results = [];
   for (const team of teams) {
+    // Scoped by the developer's own team membership, not by "was this demo
+    // tagged with this team" — a multi-team demo must never let one team's
+    // evaluations bleed into another team's score just because they shared
+    // a session.
     const evaluations = await prisma.evaluation.findMany({
-      where: { status: "COMPLETED", demo: { teams: { some: { teamId: team.id } } } },
+      where: { status: "COMPLETED", developer: { teamMemberships: { some: { teamId: team.id } } } },
       include: { answers: { include: { criterion: true } } },
     });
     const base = {

@@ -42,8 +42,11 @@ export const AITeamSummaryService = {
     const team = await prisma.team.findUnique({ where: { id: teamId } });
     if (!team) return null;
 
+    // Scoped by the developer's own team membership — a multi-team demo
+    // must never let one team's evaluations count toward another team's
+    // summary just because they shared a session.
     const evaluations = await prisma.evaluation.findMany({
-      where: { status: "COMPLETED", demo: { teams: { some: { teamId } } } },
+      where: { status: "COMPLETED", developer: { teamMemberships: { some: { teamId } } } },
       select: { id: true, score: true },
     });
     if (evaluations.length === 0) return null;
@@ -90,7 +93,7 @@ export const AITeamSummaryService = {
     const teamScores: { name: string; avg: number }[] = [];
     for (const t of teams) {
       const teamEvals = await prisma.evaluation.findMany({
-        where: { status: "COMPLETED", demo: { teams: { some: { teamId: t.id } } } },
+        where: { status: "COMPLETED", developer: { teamMemberships: { some: { teamId: t.id } } } },
         select: { score: true },
       });
       if (teamEvals.length === 0) continue;

@@ -90,3 +90,73 @@ describe("getScoreTrendSeries — September 2026 baseline, no invented months", 
     }
   });
 });
+
+// Regression test for the team-score cross-contamination bug: a demo that
+// spans multiple teams (e.g. two squads presenting together) must never let
+// one team's evaluations count toward another team's score just because
+// they shared a session — only the developer's own TeamMember row decides.
+describe("getTeamComparison — evaluations never leak across teams sharing a demo", () => {
+  let manager: { id: string };
+  let teamA: { id: string };
+  let teamB: { id: string };
+  let project: { id: string };
+  let devInTeamA: { id: string };
+  let demoId: string;
+
+  beforeAll(async () => {
+    manager = await prisma.user.create({ data: { name: "Contamination Fixture Manager", email: `contam-mgr-${Date.now()}@test.local`, role: "MANAGER" } });
+    teamA = await prisma.team.create({ data: { name: `Contamination Team A ${Date.now()}` } });
+    teamB = await prisma.team.create({ data: { name: `Contamination Team B ${Date.now()}` } });
+    project = await prisma.project.create({ data: { name: `Contamination Fixture Project ${Date.now()}`, status: "ACTIVE" } });
+    devInTeamA = await prisma.user.create({ data: { name: "Contamination Dev (Team A only)", email: `contam-dev-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    await prisma.teamMember.create({ data: { teamId: teamA.id, userId: devInTeamA.id } });
+
+    // One demo tagged with BOTH teams (a shared session), but the evaluated
+    // developer only actually belongs to Team A.
+    const demo = await prisma.demo.create({
+      data: {
+        title: "Contamination Fixture Shared Demo",
+        date: new Date(),
+        startTime: new Date(),
+        endTime: new Date(),
+        status: "COMPLETED",
+        hostManagerId: manager.id,
+        createdById: manager.id,
+        teams: { create: [{ teamId: teamA.id }, { teamId: teamB.id }] },
+        invitees: { create: [{ userId: manager.id, role: "EVALUATOR_MANAGER" }, { userId: devInTeamA.id, role: "ATTENDEE_MEMBER" }] },
+        attendees: { create: [{ userId: manager.id, status: "PRESENT" }, { userId: devInTeamA.id, status: "PRESENT" }] },
+      },
+    });
+    demoId = demo.id;
+    await prisma.evaluation.create({
+      data: { demoId: demo.id, developerId: devInTeamA.id, evaluatorId: manager.id, projectId: project.id, status: "COMPLETED", score: 90 },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.evaluation.deleteMany({ where: { demoId } });
+    await prisma.demoAttendee.deleteMany({ where: { demoId } });
+    await prisma.demoInvitee.deleteMany({ where: { demoId } });
+    await prisma.demoTeam.deleteMany({ where: { demoId } });
+    await prisma.demo.delete({ where: { id: demoId } });
+    await prisma.team.deleteMany({ where: { id: { in: [teamA.id, teamB.id] } } });
+    await prisma.project.delete({ where: { id: project.id } });
+    await prisma.user.deleteMany({ where: { id: { in: [manager.id, devInTeamA.id] } } });
+  });
+
+  it("counts the evaluation toward the developer's real team", async () => {
+    const { getTeamComparison } = await import("@/lib/queries/dashboard");
+    const rows = await getTeamComparison(UNSCOPED);
+    const rowA = rows.find((r) => r.id === teamA.id)!;
+    expect(rowA.evaluationCount).toBe(1);
+    expect(rowA.score).toBe(90);
+  });
+
+  it("does NOT leak the evaluation into the other team sharing the same demo", async () => {
+    const { getTeamComparison } = await import("@/lib/queries/dashboard");
+    const rows = await getTeamComparison(UNSCOPED);
+    const rowB = rows.find((r) => r.id === teamB.id)!;
+    expect(rowB.evaluationCount).toBe(0);
+    expect(rowB.score).toBe(0);
+  });
+});
