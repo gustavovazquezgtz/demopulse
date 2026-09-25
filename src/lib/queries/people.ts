@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { computeConfidence, computeTrend, dedupeScoresByDemo } from "@/lib/scoring";
+import { averageScore, computeConfidence, computeTrend, dedupeScoresByDemo } from "@/lib/scoring";
 import { sortRows } from "@/lib/sort";
+import { getActivityLog } from "./activity";
 import type { Scope } from "./dashboard";
 
 export async function listPeople(
@@ -69,7 +70,7 @@ export async function getPersonProfile(id: string) {
 
   const evaluations = await prisma.evaluation.findMany({
     where: { developerId: id, status: "COMPLETED" },
-    include: { demo: true, project: true, evaluator: true, answers: { include: { criterion: true } } },
+    include: { demo: true, project: true, evaluator: true, team: true, answers: { include: { criterion: true } } },
     orderBy: { demo: { date: "desc" } },
   });
 
@@ -93,10 +94,32 @@ export async function getPersonProfile(id: string) {
 
   const dims = dimensionBreakdown(evaluations);
 
+  // Grouped by Evaluation.teamId — a permanent historical snapshot, so this
+  // stays accurate even after the person has since moved to a different
+  // team. Overall score above already counts every evaluation regardless
+  // of team; this view exists so a manager can see the split.
+  const byTeam = new Map<string, { teamName: string; scores: number[] }>();
+  for (const e of evaluations) {
+    if (!e.team) continue;
+    const entry = byTeam.get(e.teamId!) ?? { teamName: e.team.name, scores: [] };
+    entry.scores.push(e.score ?? 0);
+    byTeam.set(e.teamId!, entry);
+  }
+  const scoresByTeam = [...byTeam.entries()].map(([teamId, v]) => ({
+    teamId,
+    teamName: v.teamName,
+    avgScore: averageScore(v.scores),
+    evaluationCount: v.scores.length,
+  }));
+
+  const allTeams = await prisma.team.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+  const activity = await getActivityLog("User", id);
+
   return {
     person,
     evaluations,
     scoresByDemo,
+    scoresByTeam,
     trend,
     confidence,
     attendance: { total: attendance.length, rate: attendanceRate, rows: attendance },
@@ -106,6 +129,8 @@ export async function getPersonProfile(id: string) {
     alerts,
     recognitions,
     dims,
+    allTeams,
+    activity,
   };
 }
 

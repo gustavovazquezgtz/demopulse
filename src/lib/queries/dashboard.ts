@@ -138,12 +138,11 @@ export async function getTeamComparison(scope: Scope, opts: { sort?: string; dir
   });
   const results = [];
   for (const team of teams) {
-    // Scoped by the developer's own team membership, not by "was this demo
-    // tagged with this team" — a multi-team demo must never let one team's
-    // evaluations bleed into another team's score just because they shared
-    // a session.
+    // Scoped by Evaluation.teamId — a permanent historical snapshot of
+    // which team the developer belonged to when evaluated, immune to both
+    // multi-team-demo leakage and later team moves.
     const evaluations = await prisma.evaluation.findMany({
-      where: { status: "COMPLETED", developer: { teamMemberships: { some: { teamId: team.id } } } },
+      where: { status: "COMPLETED", teamId: team.id },
       include: { answers: { include: { criterion: true } } },
     });
     const base = {

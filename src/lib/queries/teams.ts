@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Scope } from "./dashboard";
 import { averageScore } from "@/lib/scoring";
 import { sortRows } from "@/lib/sort";
+import { getActivityLog } from "./activity";
 
 export async function listTeams(scope: Scope, opts: { sort?: string; dir?: string } = {}) {
   const teams = await prisma.team.findMany({
@@ -17,11 +18,11 @@ export async function listTeams(scope: Scope, opts: { sort?: string; dir?: strin
 
   const results = [];
   for (const t of teams) {
-    // Scoped by the developer's own team membership — a multi-team demo
-    // must never let one team's evaluations count toward another team just
-    // because they shared a session.
+    // Scoped by Evaluation.teamId — a permanent historical snapshot of
+    // which team the developer belonged to when evaluated, immune to both
+    // multi-team-demo leakage and later team moves.
     const evaluations = await prisma.evaluation.findMany({
-      where: { status: "COMPLETED", developer: { teamMemberships: { some: { teamId: t.id } } } },
+      where: { status: "COMPLETED", teamId: t.id },
       select: { score: true, developerId: true },
     });
     const attendance = await prisma.demoAttendee.findMany({
@@ -78,9 +79,11 @@ export async function getTeamDetail(id: string) {
     include: { projects: { include: { project: true } } },
     orderBy: { date: "desc" },
   });
-  // Scoped by the developer's own team membership — see listTeams() above.
+  // Scoped by Evaluation.teamId — a permanent historical snapshot of
+  // which team the developer belonged to when evaluated, immune to both
+  // multi-team-demo leakage and later team moves.
   const evaluations = await prisma.evaluation.findMany({
-    where: { status: "COMPLETED", developer: { teamMemberships: { some: { teamId: id } } } },
+    where: { status: "COMPLETED", teamId: id },
     include: { answers: { include: { criterion: true } } },
   });
   const attendance = await prisma.demoAttendee.findMany({ where: { user: { teamMemberships: { some: { teamId: id } } } } });
@@ -100,6 +103,8 @@ export async function getTeamDetail(id: string) {
   const dims = [...byDim.entries()].map(([label, v]) => ({ label, value: v.total ? (v.yes / v.total) * 100 : 0 }));
 
   const insight = await prisma.aiInsight.findFirst({ where: { subjectType: "TEAM", subjectId: id }, orderBy: { createdAt: "desc" } });
+  const activity = await getActivityLog("Team", id);
+  const allManagers = await prisma.user.findMany({ where: { role: { in: ["MANAGER", "CEO"] } }, orderBy: { name: "asc" } });
 
-  return { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount: evaluations.length, urls, deliverables };
+  return { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount: evaluations.length, urls, deliverables, activity, allManagers };
 }

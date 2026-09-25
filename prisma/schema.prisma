@@ -192,10 +192,11 @@ model Team {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  managers TeamManager[]
-  members  TeamMember[]
-  projects ProjectTeam[]
-  demos    DemoTeam[]
+  managers    TeamManager[]
+  members     TeamMember[]
+  projects    ProjectTeam[]
+  demos       DemoTeam[]
+  evaluations Evaluation[]
 
   @@index([name])
 }
@@ -500,6 +501,8 @@ model Evaluation {
   developerId         String
   evaluatorId         String
   projectId           String // which project this evaluation pertains to (developer may be on multiple)
+  teamId              String? // the developer's team AT THE TIME of this evaluation — a permanent historical
+  // snapshot, so moving someone to a different team later never rewrites which team a past score belongs to.
   status              EvaluationStatus @default(NOT_STARTED)
   overallComment      String?
   strengths           String?
@@ -512,6 +515,7 @@ model Evaluation {
   developer User    @relation("Developer", fields: [developerId], references: [id], onDelete: Cascade)
   evaluator User    @relation("Evaluator", fields: [evaluatorId], references: [id], onDelete: Cascade)
   project   Project @relation(fields: [projectId], references: [id])
+  team      Team?   @relation(fields: [teamId], references: [id])
 
   answers EvaluationAnswer[]
 

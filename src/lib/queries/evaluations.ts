@@ -26,7 +26,7 @@ export async function listAllEvaluations(filters: EvaluationFilters = {}) {
       ...(filters.evaluatorId ? { evaluatorId: filters.evaluatorId } : {}),
       ...(filters.developerId ? { developerId: filters.developerId } : {}),
       ...(filters.demoId ? { demoId: filters.demoId } : {}),
-      ...(filters.teamId ? { developer: { teamMemberships: { some: { teamId: filters.teamId } } } } : {}),
+      ...(filters.teamId ? { teamId: filters.teamId } : {}),
       ...(filters.dateFrom || filters.dateTo
         ? {
             demo: {

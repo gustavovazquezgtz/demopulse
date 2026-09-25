@@ -3,9 +3,11 @@ import { requireSession } from "@/lib/permissions";
 import { UNSCOPED } from "@/lib/queries/dashboard";
 import { listTeams } from "@/lib/queries/teams";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScoreBadge } from "@/components/dashboard/score-badge";
 import { SortableHeader } from "@/components/ui/sortable-header";
+import { Plus } from "lucide-react";
 
 export default async function TeamsPage({ searchParams }: { searchParams: Promise<{ sort?: string; dir?: string }> }) {
   await requireSession();
@@ -14,9 +16,14 @@ export default async function TeamsPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">Teams / Projects</h1>
-        <p className="text-sm text-muted-foreground">{teams.length} teams across the organization.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Teams / Projects</h1>
+          <p className="text-sm text-muted-foreground">{teams.length} teams across the organization.</p>
+        </div>
+        <Button asChild>
+          <Link href="/teams/new"><Plus className="h-4 w-4" /> New Team</Link>
+        </Button>
       </div>
 
       <Card>

@@ -8,6 +8,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DimensionBars } from "@/components/charts/dimension-bars";
 import { ScoreBadge } from "@/components/dashboard/score-badge";
 import { UrlCards } from "@/components/projects/url-cards";
+import { EditTeamManagersForm } from "@/components/teams/edit-team-managers-form";
+import { ActivityLog } from "@/components/shared/activity-log";
 import { Sparkles } from "lucide-react";
 import { initials } from "@/lib/utils";
 
@@ -17,7 +19,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   const data = await getTeamDetail(id);
   if (!data) notFound();
 
-  const { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount, urls, deliverables } = data;
+  const { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount, urls, deliverables, activity, allManagers } = data;
 
   return (
     <div className="flex flex-col gap-6">
@@ -91,9 +93,24 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
                 </div>
               </Link>
             ))}
+            {team.members.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No members yet.</p>}
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Managers</CardTitle>
+          <CardDescription>Changing this also updates the matching project&apos;s managers.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <EditTeamManagersForm
+            teamId={team.id}
+            allManagers={allManagers.map((m) => ({ id: m.id, name: m.name }))}
+            initialSelectedIds={team.managers.map((m) => m.userId)}
+          />
+        </CardContent>
+      </Card>
 
       {urls.length > 0 && (
         <Card>
@@ -126,6 +143,8 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
           </CardContent>
         </Card>
       )}
+
+      <ActivityLog entries={activity} />
 
       <Card>
         <CardHeader>

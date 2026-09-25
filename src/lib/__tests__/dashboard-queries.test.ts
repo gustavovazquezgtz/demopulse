@@ -129,7 +129,7 @@ describe("getTeamComparison — evaluations never leak across teams sharing a de
     });
     demoId = demo.id;
     await prisma.evaluation.create({
-      data: { demoId: demo.id, developerId: devInTeamA.id, evaluatorId: manager.id, projectId: project.id, status: "COMPLETED", score: 90 },
+      data: { demoId: demo.id, developerId: devInTeamA.id, evaluatorId: manager.id, projectId: project.id, teamId: teamA.id, status: "COMPLETED", score: 90 },
     });
   });
 
@@ -158,5 +158,86 @@ describe("getTeamComparison — evaluations never leak across teams sharing a de
     const rowB = rows.find((r) => r.id === teamB.id)!;
     expect(rowB.evaluationCount).toBe(0);
     expect(rowB.score).toBe(0);
+  });
+});
+
+// Regression test for the "move a person between teams" feature: past
+// evaluations must stay attributed to whichever team they were given on,
+// even after the person's current TeamMember row changes — Evaluation.teamId
+// is a permanent snapshot, not a live lookup.
+describe("Evaluation.teamId — team moves never rewrite evaluation history", () => {
+  let manager: { id: string };
+  let oldTeam: { id: string };
+  let newTeam: { id: string };
+  let project: { id: string };
+  let developer: { id: string };
+  let demoId: string;
+
+  beforeAll(async () => {
+    manager = await prisma.user.create({ data: { name: "Move Fixture Manager", email: `move-mgr-${Date.now()}@test.local`, role: "MANAGER" } });
+    oldTeam = await prisma.team.create({ data: { name: `Move Fixture Old Team ${Date.now()}` } });
+    newTeam = await prisma.team.create({ data: { name: `Move Fixture New Team ${Date.now()}` } });
+    project = await prisma.project.create({ data: { name: `Move Fixture Project ${Date.now()}`, status: "ACTIVE" } });
+    developer = await prisma.user.create({ data: { name: "Move Fixture Dev", email: `move-dev-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    await prisma.teamMember.create({ data: { teamId: oldTeam.id, userId: developer.id } });
+
+    const demo = await prisma.demo.create({
+      data: {
+        title: "Move Fixture Demo",
+        date: new Date(),
+        startTime: new Date(),
+        endTime: new Date(),
+        status: "COMPLETED",
+        hostManagerId: manager.id,
+        createdById: manager.id,
+        teams: { create: [{ teamId: oldTeam.id }] },
+        invitees: { create: [{ userId: manager.id, role: "EVALUATOR_MANAGER" }, { userId: developer.id, role: "ATTENDEE_MEMBER" }] },
+        attendees: { create: [{ userId: manager.id, status: "PRESENT" }, { userId: developer.id, status: "PRESENT" }] },
+      },
+    });
+    demoId = demo.id;
+    // Evaluation.teamId set to oldTeam — exactly what resolveEvaluationTeamId
+    // would compute at save time, since the developer was on oldTeam then.
+    await prisma.evaluation.create({
+      data: { demoId: demo.id, developerId: developer.id, evaluatorId: manager.id, projectId: project.id, teamId: oldTeam.id, status: "COMPLETED", score: 80 },
+    });
+
+    // Now simulate moveTeamMember(): the developer's CURRENT team changes...
+    await prisma.teamMember.deleteMany({ where: { userId: developer.id } });
+    await prisma.teamMember.create({ data: { teamId: newTeam.id, userId: developer.id } });
+  });
+
+  afterAll(async () => {
+    await prisma.evaluation.deleteMany({ where: { demoId } });
+    await prisma.demoAttendee.deleteMany({ where: { demoId } });
+    await prisma.demoInvitee.deleteMany({ where: { demoId } });
+    await prisma.demoTeam.deleteMany({ where: { demoId } });
+    await prisma.demo.delete({ where: { id: demoId } });
+    await prisma.teamMember.deleteMany({ where: { userId: developer.id } });
+    await prisma.team.deleteMany({ where: { id: { in: [oldTeam.id, newTeam.id] } } });
+    await prisma.project.delete({ where: { id: project.id } });
+    await prisma.user.deleteMany({ where: { id: { in: [manager.id, developer.id] } } });
+  });
+
+  it("...but the old team's score still counts the evaluation given while the person was there", async () => {
+    const { getTeamComparison } = await import("@/lib/queries/dashboard");
+    const rows = await getTeamComparison(UNSCOPED);
+    const oldRow = rows.find((r) => r.id === oldTeam.id)!;
+    expect(oldRow.evaluationCount).toBe(1);
+    expect(oldRow.score).toBe(80);
+  });
+
+  it("the new team's score does NOT retroactively claim an evaluation from before the move", async () => {
+    const { getTeamComparison } = await import("@/lib/queries/dashboard");
+    const rows = await getTeamComparison(UNSCOPED);
+    const newRow = rows.find((r) => r.id === newTeam.id)!;
+    expect(newRow.evaluationCount).toBe(0);
+  });
+
+  it("the person's overall score still counts the evaluation regardless of which team they're on now", async () => {
+    const evaluations = await prisma.evaluation.findMany({ where: { developerId: developer.id, status: "COMPLETED" } });
+    expect(evaluations).toHaveLength(1);
+    expect(evaluations[0].score).toBe(80);
+    expect(evaluations[0].teamId).toBe(oldTeam.id); // still tagged with the team it was given on
   });
 });

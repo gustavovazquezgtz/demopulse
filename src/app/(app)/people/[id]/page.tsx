@@ -9,6 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DimensionBars } from "@/components/charts/dimension-bars";
 import { InsightCard } from "@/components/insights/insight-card";
 import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
+import { ChangeTeamForm } from "@/components/people/change-team-form";
+import { ActivityLog } from "@/components/shared/activity-log";
 import { initials, formatScore } from "@/lib/utils";
 
 export default async function PersonProfilePage({ params }: { params: Promise<{ id: string }> }) {
@@ -17,7 +19,7 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
   const data = await getPersonProfile(id);
   if (!data) notFound();
 
-  const { person, evaluations, trend, confidence, attendance, avgParticipation, managerOpinions, insights, alerts, recognitions, dims } = data;
+  const { person, evaluations, scoresByTeam, trend, confidence, attendance, avgParticipation, managerOpinions, insights, alerts, recognitions, dims, allTeams, activity } = data;
 
   return (
     <div className="flex flex-col gap-6">
@@ -89,8 +91,42 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
                     {person.skills.map((s) => <Badge key={s} variant="outline">{s}</Badge>)}
                   </div>
                 } />
+                <div className="flex items-center justify-between gap-4 pt-1">
+                  <span className="text-xs text-muted-foreground">Move to another team</span>
+                  <ChangeTeamForm
+                    userId={person.id}
+                    currentTeamIds={person.teamMemberships.map((tm) => tm.teamId)}
+                    allTeams={allTeams}
+                  />
+                </div>
               </CardContent>
             </Card>
+          </div>
+
+          {scoresByTeam.length > 0 && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle>Score by Team</CardTitle>
+                <CardDescription>
+                  Each evaluation stays attributed to the team it was given on, even after a team change — overall score above always counts everything.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2">
+                {scoresByTeam.map((t) => (
+                  <div key={t.teamId} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Link href={`/teams/${t.teamId}`} className="font-medium text-foreground hover:underline">{t.teamName}</Link>
+                      <span className="text-xs text-muted-foreground">{t.evaluationCount} eval{t.evaluationCount === 1 ? "" : "s"}</span>
+                    </div>
+                    <ScoreBadge score={t.avgScore} />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="mt-4">
+            <ActivityLog entries={activity} />
           </div>
         </TabsContent>
 
@@ -112,9 +148,12 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
                       className="flex items-center justify-between px-5 py-3 hover:bg-surface-muted/60"
                     >
                       <div>
-                        <p className="text-sm font-medium text-foreground">{e.demo.title}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-medium text-foreground">{e.demo.title}</p>
+                          {e.team && <Badge variant="secondary" className="text-[10px]">{e.team.name}</Badge>}
+                        </div>
                         <p className="text-xs text-muted-foreground">
-                          {e.demo.date.toLocaleDateString()} · evaluated by {e.evaluator.name} · {e.project.name}
+                          {e.demo.date.toLocaleDateString()} · evaluated by {e.evaluator.name}
                         </p>
                         {e.overallComment && <p className="mt-1 text-xs text-muted-foreground italic">&ldquo;{e.overallComment}&rdquo;</p>}
                       </div>

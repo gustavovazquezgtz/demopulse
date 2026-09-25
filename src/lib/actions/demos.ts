@@ -466,6 +466,7 @@ export async function saveEvaluation(demoId: string, draft: EvaluationDraft) {
 
   const demo = await prisma.demo.findUniqueOrThrow({ where: { id: demoId }, include: { teams: true, projects: true } });
   const projectId = await resolveEvaluationProjectId(demo.projects.map((p) => p.projectId), draft.developerId);
+  const teamId = await resolveEvaluationTeamId(demo.teams.map((t) => t.teamId), draft.developerId);
 
   const existing = await prisma.evaluation.findUnique({
     where: { demoId_developerId_evaluatorId: { demoId, developerId: draft.developerId, evaluatorId } },
@@ -498,6 +499,7 @@ export async function saveEvaluation(demoId: string, draft: EvaluationDraft) {
       developerId: draft.developerId,
       evaluatorId,
       projectId,
+      teamId,
       status: finalize ? "COMPLETED" : "IN_PROGRESS",
       overallComment: draft.overallComment,
       strengths: draft.strengths,
@@ -547,4 +549,20 @@ async function resolveEvaluationProjectId(demoProjectIds: string[], developerId:
   if (primaryAssignment) return primaryAssignment.projectId;
 
   throw new Error("Could not determine a project for this evaluation — the developer has no project assignment and the demo has no linked project.");
+}
+
+/**
+ * Which team does this evaluation belong to, historically? Set ONCE at
+ * creation and never touched again — moving the developer to a different
+ * team later must not rewrite which team a past score belongs to. Prefers
+ * whichever of the demo's own teams the developer is currently on; falls
+ * back to their first team membership if the demo has none in common
+ * (e.g. a guest evaluator from elsewhere).
+ */
+async function resolveEvaluationTeamId(demoTeamIds: string[], developerId: string): Promise<string | null> {
+  const memberships = await prisma.teamMember.findMany({ where: { userId: developerId }, select: { teamId: true } });
+  const developerTeamIds = new Set(memberships.map((m) => m.teamId));
+  const match = demoTeamIds.find((id) => developerTeamIds.has(id));
+  if (match) return match;
+  return memberships[0]?.teamId ?? null;
 }

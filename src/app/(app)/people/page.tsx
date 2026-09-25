@@ -4,11 +4,13 @@ import { UNSCOPED } from "@/lib/queries/dashboard";
 import { listPeople } from "@/lib/queries/people";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
 import { SortableHeader } from "@/components/ui/sortable-header";
+import { Plus } from "lucide-react";
 import { initials } from "@/lib/utils";
 
 export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; sort?: string; dir?: string }> }) {
@@ -24,9 +26,14 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           <h1 className="text-xl font-semibold text-foreground">People</h1>
           <p className="text-sm text-muted-foreground">{total} people across the organization</p>
         </div>
-        <form className="w-64">
-          <Input name="q" defaultValue={q} placeholder="Search people..." />
-        </form>
+        <div className="flex items-center gap-2">
+          <form className="w-64">
+            <Input name="q" defaultValue={q} placeholder="Search people..." />
+          </form>
+          <Button asChild>
+            <Link href="/people/new"><Plus className="h-4 w-4" /> New Person</Link>
+          </Button>
+        </div>
       </div>
 
       <Card>
