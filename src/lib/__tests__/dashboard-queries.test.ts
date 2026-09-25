@@ -247,8 +247,8 @@ describe("Evaluation.teamId — team moves never rewrite evaluation history", ()
 // and the Ranking table's "previous managers" must reflect exactly that —
 // distinct from whoever currently manages the team.
 describe("TeamManagerHistory — reassigning a team's manager preserves who managed it before", () => {
-  let oldManager: { id: string };
-  let newManager: { id: string };
+  let oldManager: { id: string; name: string };
+  let newManager: { id: string; name: string };
   let team: { id: string };
   let developer: { id: string };
 
