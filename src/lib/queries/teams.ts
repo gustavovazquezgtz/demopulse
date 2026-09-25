@@ -9,7 +9,7 @@ export async function listTeams(scope: Scope, opts: { sort?: string; dir?: strin
     where: scope.teamIds ? { id: { in: scope.teamIds } } : {},
     include: {
       managers: { include: { user: true } },
-      members: true,
+      members: { where: { leftAt: null } },
       projects: { include: { project: true } },
       demos: true,
     },
@@ -26,7 +26,7 @@ export async function listTeams(scope: Scope, opts: { sort?: string; dir?: strin
       select: { score: true, developerId: true },
     });
     const attendance = await prisma.demoAttendee.findMany({
-      where: { user: { teamMemberships: { some: { teamId: t.id } } } },
+      where: { user: { teamMemberships: { some: { teamId: t.id, leftAt: null } } } },
       select: { status: true },
     });
     const avgScore = averageScore(evaluations.map((e) => e.score));
@@ -54,7 +54,7 @@ export async function getTeamDetail(id: string) {
     where: { id },
     include: {
       managers: { include: { user: true } },
-      members: { include: { user: true } },
+      members: { where: { leftAt: null }, include: { user: true } },
       projects: { include: { project: { include: { urls: true } } } },
     },
   });
@@ -86,7 +86,7 @@ export async function getTeamDetail(id: string) {
     where: { status: "COMPLETED", teamId: id },
     include: { answers: { include: { criterion: true } } },
   });
-  const attendance = await prisma.demoAttendee.findMany({ where: { user: { teamMemberships: { some: { teamId: id } } } } });
+  const attendance = await prisma.demoAttendee.findMany({ where: { user: { teamMemberships: { some: { teamId: id, leftAt: null } } } } });
 
   const avgScore = averageScore(evaluations.map((e) => e.score));
   const attendanceRate = attendance.length ? (attendance.filter((a) => a.status === "PRESENT").length / attendance.length) * 100 : 0;
@@ -119,5 +119,41 @@ export async function getTeamDetail(id: string) {
     endedAt: h.endedAt,
   }));
 
-  return { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount: evaluations.length, urls, deliverables, activity, allManagers, managerHistory };
+  const memberHistoryRows = await prisma.teamMember.findMany({
+    where: { teamId: id },
+    include: { user: true },
+    orderBy: { joinedAt: "desc" },
+  });
+  const memberHistory = memberHistoryRows.map((m) => ({
+    id: m.id,
+    userId: m.userId,
+    userName: m.user.name,
+    joinedAt: m.joinedAt,
+    leftAt: m.leftAt,
+  }));
+
+  // Developers not currently active on this team — the "add member" picker.
+  const currentMemberIds = new Set(team.members.map((m) => m.userId));
+  const availablePeople = await prisma.user.findMany({
+    where: { role: "DEVELOPER", id: { notIn: [...currentMemberIds] } },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
+  return {
+    team,
+    demos,
+    avgScore,
+    attendanceRate,
+    dims,
+    insight,
+    evaluationCount: evaluations.length,
+    urls,
+    deliverables,
+    activity,
+    allManagers,
+    managerHistory,
+    memberHistory,
+    availablePeople,
+  };
 }

@@ -49,11 +49,19 @@ async function removeManagerFromTeam(teamId: string, managerId: string) {
  * ARCHITECTURE.md), so this also creates a matching Project of the same
  * name and links it — nobody has to separately set up "the project side."
  */
-export async function createTeam(input: { name: string; description?: string; managerIds: string[] }) {
+export async function createTeam(input: {
+  name: string;
+  description?: string;
+  managerIds: string[];
+  memberIds?: string[];
+  startDate?: string;
+}) {
   const session = await requireSession();
   const name = input.name.trim();
   if (name.length < 2) throw new Error("Team name is required.");
   if (input.managerIds.length === 0) throw new Error("Select at least one manager.");
+  const memberIds = input.memberIds ?? [];
+  const startDate = input.startDate ? new Date(input.startDate) : new Date();
 
   const team = await prisma.team.create({
     data: {
@@ -61,6 +69,7 @@ export async function createTeam(input: { name: string; description?: string; ma
       description: input.description?.trim() || undefined,
       managers: { create: input.managerIds.map((userId) => ({ userId })) },
       managerHistory: { create: input.managerIds.map((managerId) => ({ managerId })) },
+      members: { create: memberIds.map((userId) => ({ userId, joinedAt: startDate })) },
     },
   });
 
@@ -74,8 +83,18 @@ export async function createTeam(input: { name: string; description?: string; ma
     },
   });
 
+  // Mirror the initial roster onto the new Project's assignments — this is
+  // a brand new project, so there's nothing to diff against, just create.
+  // The first active project a member has becomes their primary one.
+  for (const userId of memberIds) {
+    const hasOtherActiveAssignment = await prisma.projectAssignment.findFirst({ where: { userId, endDate: null } });
+    await prisma.projectAssignment.create({
+      data: { projectId: project.id, userId, startDate, isPrimary: !hasOtherActiveAssignment },
+    });
+  }
+
   await prisma.auditLog.create({
-    data: { userId: session.user.id, entityType: "Team", entityId: team.id, action: "CREATE", after: { name, managerIds: input.managerIds, projectId: project.id } },
+    data: { userId: session.user.id, entityType: "Team", entityId: team.id, action: "CREATE", after: { name, managerIds: input.managerIds, memberIds, projectId: project.id } },
   });
 
   revalidatePath("/teams");
@@ -83,80 +102,91 @@ export async function createTeam(input: { name: string; description?: string; ma
 }
 
 /**
- * Moves a developer from their current team(s) to a different one —
- * updates TeamMember and the matching primary ProjectAssignment, and logs
- * the change so it's auditable. Crucially, this never touches Evaluation
- * rows: every past score keeps the Evaluation.teamId it was given at the
- * time, so a person's history stays intact and correctly attributed to
- * whichever team they were on when each evaluation happened, while their
- * overall score keeps counting everything regardless of team.
+ * Adds a developer to a team as of a given date (defaults to today). A
+ * person can be active on several teams at once, so this never touches
+ * their other memberships — and if they already left this exact team
+ * before, this opens a brand new stint rather than reviving the old one,
+ * so the old joinedAt/leftAt pair stays on record untouched.
  */
-export async function moveTeamMember(userId: string, newTeamId: string) {
+export async function addTeamMember(teamId: string, userId: string, joinedAt?: string) {
   const session = await requireSession();
+  const start = joinedAt ? new Date(joinedAt) : new Date();
 
-  const [user, newTeam, currentMemberships] = await Promise.all([
+  const existingActive = await prisma.teamMember.findFirst({ where: { teamId, userId, leftAt: null } });
+  if (existingActive) return; // already an active member — no-op
+
+  const [team, user] = await Promise.all([
+    prisma.team.findUniqueOrThrow({ where: { id: teamId }, include: { projects: true } }),
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
-    prisma.team.findUniqueOrThrow({ where: { id: newTeamId }, include: { projects: true } }),
-    prisma.teamMember.findMany({ where: { userId }, include: { team: true } }),
   ]);
 
-  const oldTeamNames = currentMemberships.map((m) => m.team.name);
-  if (oldTeamNames.length === 1 && currentMemberships[0].teamId === newTeamId) {
-    return; // no-op, already on this team
-  }
+  await prisma.teamMember.create({ data: { teamId, userId, joinedAt: start } });
 
-  await prisma.teamMember.deleteMany({ where: { userId } });
-  await prisma.teamMember.create({ data: { teamId: newTeamId, userId } });
-
-  // Move the primary project assignment to match — Team/Project stay one
-  // concept from the user's point of view.
-  const newProjectId = newTeam.projects[0]?.projectId;
-  await prisma.projectAssignment.deleteMany({ where: { userId, isPrimary: true } });
-  if (newProjectId) {
+  // Mirror onto the linked Project — Team/Project stay one concept. The
+  // first active assignment a person has becomes primary; later ones don't
+  // (resolveEvaluationProjectId only uses "primary" as a tiebreak anyway).
+  const projectId = team.projects[0]?.projectId;
+  if (projectId) {
+    const hasOtherActiveAssignment = await prisma.projectAssignment.findFirst({ where: { userId, endDate: null } });
     await prisma.projectAssignment.upsert({
-      where: { projectId_userId: { projectId: newProjectId, userId } },
-      update: { isPrimary: true },
-      create: { projectId: newProjectId, userId, isPrimary: true },
+      where: { projectId_userId: { projectId, userId } },
+      update: { endDate: null, startDate: start, isPrimary: !hasOtherActiveAssignment },
+      create: { projectId, userId, startDate: start, isPrimary: !hasOtherActiveAssignment },
     });
   }
 
-  // Logged three ways so it shows up wherever someone is looking: on the
-  // person's own activity, and on each affected team's activity feed
-  // (entityId keyed to that specific team, not just to the person).
   await prisma.auditLog.createMany({
     data: [
-      {
-        userId: session.user.id,
-        entityType: "User",
-        entityId: userId,
-        action: "MOVE_TEAM",
-        before: { teams: oldTeamNames },
-        after: { teams: [newTeam.name], movedBy: session.user.name },
-      },
-      ...currentMemberships.map((m) => ({
-        userId: session.user.id,
-        entityType: "Team",
-        entityId: m.teamId,
-        action: "MEMBER_LEFT",
-        before: { member: user.name },
-        after: { movedTo: newTeam.name },
-      })),
-      {
-        userId: session.user.id,
-        entityType: "Team",
-        entityId: newTeamId,
-        action: "MEMBER_JOINED",
-        before: { movedFrom: oldTeamNames.join(", ") || null },
-        after: { member: user.name },
-      },
+      { userId: session.user.id, entityType: "User", entityId: userId, action: "JOINED_TEAM", after: { team: team.name, joinedAt: start.toISOString() } },
+      { userId: session.user.id, entityType: "Team", entityId: teamId, action: "MEMBER_JOINED", after: { member: user.name } },
     ],
   });
 
   revalidatePath("/people");
   revalidatePath(`/people/${userId}`);
   revalidatePath("/teams");
-  revalidatePath(`/teams/${newTeamId}`);
-  for (const m of currentMemberships) revalidatePath(`/teams/${m.teamId}`);
+  revalidatePath(`/teams/${teamId}`);
+}
+
+/**
+ * Ends a developer's membership on a team as of a given date (defaults to
+ * today) — closes the TeamMember stint (leftAt) rather than deleting the
+ * row, and ends the matching ProjectAssignment the same way. Every past
+ * Evaluation keeps the Evaluation.teamId it was given at the time, so this
+ * never touches or reinterprets historical scores.
+ */
+export async function removeTeamMember(teamMemberId: string, leftAt?: string) {
+  const session = await requireSession();
+  const end = leftAt ? new Date(leftAt) : new Date();
+
+  const member = await prisma.teamMember.findUniqueOrThrow({
+    where: { id: teamMemberId },
+    include: { team: { include: { projects: true } }, user: true },
+  });
+  if (member.leftAt) return; // already ended
+  if (end < member.joinedAt) throw new Error("The leave date can't be before the join date.");
+
+  await prisma.teamMember.update({ where: { id: teamMemberId }, data: { leftAt: end } });
+
+  const projectId = member.team.projects[0]?.projectId;
+  if (projectId) {
+    await prisma.projectAssignment.updateMany({
+      where: { projectId, userId: member.userId, endDate: null },
+      data: { endDate: end },
+    });
+  }
+
+  await prisma.auditLog.createMany({
+    data: [
+      { userId: session.user.id, entityType: "User", entityId: member.userId, action: "LEFT_TEAM", before: { team: member.team.name, leftAt: end.toISOString() } },
+      { userId: session.user.id, entityType: "Team", entityId: member.teamId, action: "MEMBER_LEFT", before: { member: member.user.name } },
+    ],
+  });
+
+  revalidatePath("/people");
+  revalidatePath(`/people/${member.userId}`);
+  revalidatePath("/teams");
+  revalidatePath(`/teams/${member.teamId}`);
 }
 
 /**

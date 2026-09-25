@@ -28,7 +28,7 @@ export async function getDemoDetail(id: string) {
     where: { id },
     include: {
       projects: { include: { project: true } },
-      teams: { include: { team: { include: { members: { include: { user: true } } } } } },
+      teams: { include: { team: { include: { members: { where: { leftAt: null }, include: { user: true } } } } } },
       hostManager: true,
       startedBy: true,
       urls: true,
@@ -66,7 +66,7 @@ export async function getDemoDetail(id: string) {
   // (add/remove) without a separate page.
   const allTeams = await prisma.team.findMany({
     orderBy: { name: "asc" },
-    include: { managers: { include: { user: true } }, members: { include: { user: true } } },
+    include: { managers: { include: { user: true } }, members: { where: { leftAt: null }, include: { user: true } } },
   });
 
   // Every manager in the org — evaluations aren't limited to a developer's
@@ -82,7 +82,7 @@ export async function getDemoForEvaluation(demoId: string, evaluatorId: string) 
     where: { id: demoId },
     include: {
       projects: { include: { project: true } },
-      teams: { include: { team: { include: { members: true } } } },
+      teams: { include: { team: { include: { members: { where: { leftAt: null } } } } } },
       attendees: { include: { user: true } },
       invitees: { include: { user: true } },
     },

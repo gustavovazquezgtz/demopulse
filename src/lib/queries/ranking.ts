@@ -11,10 +11,10 @@ export async function getRanking(
     where: {
       role: "DEVELOPER",
       ...(scope.personIds ? { id: { in: scope.personIds } } : {}),
-      ...(opts.teamId ? { teamMemberships: { some: { teamId: opts.teamId } } } : {}),
+      ...(opts.teamId ? { teamMemberships: { some: { teamId: opts.teamId, leftAt: null } } } : {}),
     },
     include: {
-      teamMemberships: { include: { team: { include: { managers: { include: { user: true } } } } } },
+      teamMemberships: { where: { leftAt: null }, include: { team: { include: { managers: { include: { user: true } } } } } },
       evaluationsReceived: {
         where: { status: "COMPLETED" },
         include: { demo: true, answers: { include: { criterion: true } } },

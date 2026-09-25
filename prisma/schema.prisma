@@ -236,18 +236,23 @@ model TeamManagerHistory {
   @@index([teamId, endedAt])
 }
 
+// A single membership stint: joinedAt/leftAt (leftAt null = still active).
+// No longer unique on (teamId, userId) — a person can be an active member
+// of several teams at once, and can leave and later rejoin the same team,
+// which needs a second row rather than overwriting the first one's dates.
 model TeamMember {
-  id       String   @id @default(cuid())
+  id       String    @id @default(cuid())
   teamId   String
   userId   String
-  joinedAt DateTime @default(now())
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([teamId, userId])
   @@index([userId])
   @@index([teamId])
+  @@index([teamId, leftAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

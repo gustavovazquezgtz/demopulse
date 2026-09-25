@@ -4,7 +4,10 @@ import { TeamForm } from "./team-form";
 
 export default async function NewTeamPage() {
   await requireSession();
-  const managers = await prisma.user.findMany({ where: { role: { in: ["MANAGER", "CEO"] } }, orderBy: { name: "asc" } });
+  const [managers, developers] = await Promise.all([
+    prisma.user.findMany({ where: { role: { in: ["MANAGER", "CEO"] } }, orderBy: { name: "asc" } }),
+    prisma.user.findMany({ where: { role: "DEVELOPER" }, orderBy: { name: "asc" } }),
+  ]);
 
   return (
     <div className="mx-auto max-w-lg">
@@ -12,7 +15,10 @@ export default async function NewTeamPage() {
         <h1 className="text-xl font-semibold text-foreground">Create Team</h1>
         <p className="text-sm text-muted-foreground">Sets up the matching project automatically — Team and Project are one concept here.</p>
       </div>
-      <TeamForm managers={managers.map((m) => ({ id: m.id, name: m.name }))} />
+      <TeamForm
+        managers={managers.map((m) => ({ id: m.id, name: m.name }))}
+        developers={developers.map((d) => ({ id: d.id, name: d.name }))}
+      />
     </div>
   );
 }

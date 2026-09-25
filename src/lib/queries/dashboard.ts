@@ -21,7 +21,7 @@ export async function buildManagerScope(userId: string): Promise<Scope> {
   const projectIds = [...new Set([...directProjects.map((p) => p.projectId), ...teamProjects.map((p) => p.projectId)])];
 
   const [viaTeams, viaProjects] = await Promise.all([
-    teamIds.length ? prisma.teamMember.findMany({ where: { teamId: { in: teamIds } }, select: { userId: true } }) : [],
+    teamIds.length ? prisma.teamMember.findMany({ where: { teamId: { in: teamIds }, leftAt: null }, select: { userId: true } }) : [],
     projectIds.length
       ? prisma.projectAssignment.findMany({ where: { projectId: { in: projectIds } }, select: { userId: true } })
       : [],
@@ -54,7 +54,7 @@ export async function getOrgStats(scope: Scope) {
       select: { score: true, developerId: true },
     }),
     prisma.demoAttendee.findMany({
-      where: scope.teamIds ? { user: { teamMemberships: { some: { teamId: { in: scope.teamIds } } } } } : {},
+      where: scope.teamIds ? { user: { teamMemberships: { some: { teamId: { in: scope.teamIds }, leftAt: null } } } } : {},
       select: { status: true },
     }),
   ]);

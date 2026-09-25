@@ -13,6 +13,8 @@ interface ActivityEntry {
 const ACTION_LABEL: Record<string, string> = {
   CREATE: "Created",
   MOVE_TEAM: "Team changed",
+  JOINED_TEAM: "Joined a team",
+  LEFT_TEAM: "Left a team",
   MEMBER_JOINED: "Member joined",
   MEMBER_LEFT: "Member left",
   MANAGER_CHANGED: "Manager changed",
@@ -37,6 +39,12 @@ function describe(entry: ActivityEntry): string {
   }
   if (action === "MOVE_TEAM" && before?.teams && after?.teams) {
     return `Moved from ${(before.teams as string[]).join(", ") || "no team"} to ${(after.teams as string[]).join(", ")}`;
+  }
+  if (action === "JOINED_TEAM" && after?.team) {
+    return `Joined ${after.team}`;
+  }
+  if (action === "LEFT_TEAM" && before?.team) {
+    return `Left ${before.team}`;
   }
   if (action === "MANAGER_CHANGED" && before?.managers && after?.managers) {
     return `${(before.managers as string[]).join(", ") || "—"} → ${(after.managers as string[]).join(", ")}`;

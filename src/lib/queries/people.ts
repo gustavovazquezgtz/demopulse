@@ -15,7 +15,7 @@ export async function listPeople(
     role: "DEVELOPER" as const,
     ...(scope.personIds ? { id: { in: scope.personIds } } : {}),
     ...(opts.q ? { name: { contains: opts.q, mode: "insensitive" as const } } : {}),
-    ...(opts.teamId ? { teamMemberships: { some: { teamId: opts.teamId } } } : {}),
+    ...(opts.teamId ? { teamMemberships: { some: { teamId: opts.teamId, leftAt: null } } } : {}),
     ...(opts.projectId ? { projectAssignments: { some: { projectId: opts.projectId } } } : {}),
   };
 
@@ -25,7 +25,7 @@ export async function listPeople(
   const people = await prisma.user.findMany({
     where,
     include: {
-      teamMemberships: { include: { team: true } },
+      teamMemberships: { where: { leftAt: null }, include: { team: true } },
       projectAssignments: { include: { project: true } },
       evaluationsReceived: { where: { status: "COMPLETED" }, include: { demo: true }, orderBy: { demo: { date: "asc" } } },
     },
@@ -62,11 +62,29 @@ export async function getPersonProfile(id: string) {
   const person = await prisma.user.findUnique({
     where: { id },
     include: {
-      teamMemberships: { include: { team: true } },
+      // Active memberships only — a person can be on several teams at
+      // once, and each row here still carries its own id, so it can be
+      // ended individually via removeTeamMember.
+      teamMemberships: { where: { leftAt: null }, include: { team: true } },
       projectAssignments: { include: { project: true } },
     },
   });
   if (!person) return null;
+
+  // Every stint, active or ended — kept separate from person.teamMemberships
+  // above so existing "current teams" displays don't need to filter again.
+  const membershipHistoryRows = await prisma.teamMember.findMany({
+    where: { userId: id },
+    include: { team: true },
+    orderBy: { joinedAt: "desc" },
+  });
+  const membershipHistory = membershipHistoryRows.map((m) => ({
+    id: m.id,
+    teamId: m.teamId,
+    teamName: m.team.name,
+    joinedAt: m.joinedAt,
+    leftAt: m.leftAt,
+  }));
 
   const evaluations = await prisma.evaluation.findMany({
     where: { developerId: id, status: "COMPLETED" },
@@ -147,6 +165,7 @@ export async function getPersonProfile(id: string) {
     activity,
     managedTeamIds,
     managerHistory,
+    membershipHistory,
   };
 }
 

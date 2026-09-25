@@ -37,7 +37,7 @@ export async function visibleProjectIds(userId: string): Promise<string[]> {
 export async function visiblePersonIds(userId: string): Promise<string[]> {
   const [teamIds, projectIds] = await Promise.all([managedTeamIds(userId), visibleProjectIds(userId)]);
   const [viaTeams, viaProjects] = await Promise.all([
-    teamIds.length ? prisma.teamMember.findMany({ where: { teamId: { in: teamIds } }, select: { userId: true } }) : [],
+    teamIds.length ? prisma.teamMember.findMany({ where: { teamId: { in: teamIds }, leftAt: null }, select: { userId: true } }) : [],
     projectIds.length
       ? prisma.projectAssignment.findMany({ where: { projectId: { in: projectIds } }, select: { userId: true } })
       : [],

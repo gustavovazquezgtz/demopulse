@@ -293,3 +293,80 @@ describe("TeamManagerHistory — reassigning a team's manager preserves who mana
     expect(row.previousManagers).toEqual([oldManager.name]);
   });
 });
+
+// Regression test for multi-team membership with dated join/leave: a
+// developer can be active on more than one team at once, removing them from
+// one team must not touch the other, and a closed-out stint (leftAt set)
+// must stop counting as "current" while staying on record for history.
+describe("TeamMember — multi-team membership with joinedAt/leftAt", () => {
+  let developer: { id: string };
+  let teamA: { id: string; name: string };
+  let teamB: { id: string; name: string };
+  let teamC: { id: string; name: string };
+  let membershipA: { id: string };
+
+  beforeAll(async () => {
+    developer = await prisma.user.create({ data: { name: "Multi-Team Fixture Dev", email: `multi-dev-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    teamA = await prisma.team.create({ data: { name: `Multi-Team Fixture A ${Date.now()}` } });
+    teamB = await prisma.team.create({ data: { name: `Multi-Team Fixture B ${Date.now()}` } });
+    teamC = await prisma.team.create({ data: { name: `Multi-Team Fixture C ${Date.now()}` } });
+
+    // Active on A and B at once...
+    membershipA = await prisma.teamMember.create({ data: { teamId: teamA.id, userId: developer.id, joinedAt: new Date("2026-01-01") } });
+    await prisma.teamMember.create({ data: { teamId: teamB.id, userId: developer.id, joinedAt: new Date("2026-02-01") } });
+    // ...and a closed-out stint on C from before either of those.
+    await prisma.teamMember.create({
+      data: { teamId: teamC.id, userId: developer.id, joinedAt: new Date("2025-06-01"), leftAt: new Date("2025-12-01") },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.teamMember.deleteMany({ where: { userId: developer.id } });
+    await prisma.team.deleteMany({ where: { id: { in: [teamA.id, teamB.id, teamC.id] } } });
+    await prisma.user.delete({ where: { id: developer.id } });
+  });
+
+  it("counts the developer as an active member of both A and B", async () => {
+    const { getTeamDetail } = await import("@/lib/queries/teams");
+    const detailA = await getTeamDetail(teamA.id);
+    const detailB = await getTeamDetail(teamB.id);
+    expect(detailA!.team.members.some((m) => m.userId === developer.id)).toBe(true);
+    expect(detailB!.team.members.some((m) => m.userId === developer.id)).toBe(true);
+  });
+
+  it("does not count the developer as an active member of C (their stint there ended)", async () => {
+    const { getTeamDetail } = await import("@/lib/queries/teams");
+    const detailC = await getTeamDetail(teamC.id);
+    expect(detailC!.team.members.some((m) => m.userId === developer.id)).toBe(false);
+    // ...but the stint is still visible in the team's member history.
+    expect(detailC!.memberHistory.some((h) => h.userId === developer.id && h.leftAt !== null)).toBe(true);
+  });
+
+  it("ending the membership on A leaves B untouched", async () => {
+    await prisma.teamMember.update({ where: { id: membershipA.id }, data: { leftAt: new Date("2026-06-01") } });
+    const { getTeamDetail } = await import("@/lib/queries/teams");
+    const detailA = await getTeamDetail(teamA.id);
+    const detailB = await getTeamDetail(teamB.id);
+    expect(detailA!.team.members.some((m) => m.userId === developer.id)).toBe(false);
+    expect(detailB!.team.members.some((m) => m.userId === developer.id)).toBe(true);
+    // Restore for the next assertion's isolation, even though afterAll cleans everything up.
+    await prisma.teamMember.update({ where: { id: membershipA.id }, data: { leftAt: null } });
+  });
+
+  it("Ranking lists both currently-active teams for the developer", async () => {
+    const { getRanking } = await import("@/lib/queries/ranking");
+    const rows = await getRanking(UNSCOPED);
+    const row = rows.find((r) => r.id === developer.id)!;
+    expect(new Set(row.teams)).toEqual(new Set([teamA.name, teamB.name]));
+  });
+
+  it("rejoining a team after leaving opens a new stint rather than reviving the old one", async () => {
+    const before = await prisma.teamMember.count({ where: { teamId: teamC.id, userId: developer.id } });
+    await prisma.teamMember.create({ data: { teamId: teamC.id, userId: developer.id, joinedAt: new Date("2026-03-01") } });
+    const after = await prisma.teamMember.count({ where: { teamId: teamC.id, userId: developer.id } });
+    expect(after).toBe(before + 1);
+    const rows = await prisma.teamMember.findMany({ where: { teamId: teamC.id, userId: developer.id }, orderBy: { joinedAt: "asc" } });
+    expect(rows[0].leftAt).not.toBeNull(); // the old, closed-out stint is untouched
+    expect(rows[1].leftAt).toBeNull(); // the new stint is active
+  });
+});

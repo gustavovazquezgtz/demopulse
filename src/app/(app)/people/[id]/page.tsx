@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DimensionBars } from "@/components/charts/dimension-bars";
 import { InsightCard } from "@/components/insights/insight-card";
 import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
-import { ChangeTeamForm } from "@/components/people/change-team-form";
+import { PersonTeamsPanel } from "@/components/people/person-teams-panel";
 import { ManagerTeamsForm } from "@/components/people/manager-teams-form";
 import { ActivityLog } from "@/components/shared/activity-log";
 import { initials, formatScore } from "@/lib/utils";
@@ -20,7 +20,7 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
   const data = await getPersonProfile(id);
   if (!data) notFound();
 
-  const { person, evaluations, scoresByTeam, trend, confidence, attendance, avgParticipation, managerOpinions, insights, alerts, recognitions, dims, allTeams, activity, managedTeamIds, managerHistory } = data;
+  const { person, evaluations, scoresByTeam, trend, confidence, attendance, avgParticipation, managerOpinions, insights, alerts, recognitions, dims, allTeams, activity, managedTeamIds, managerHistory, membershipHistory } = data;
   const isManager = person.role === "MANAGER" || person.role === "CEO";
 
   return (
@@ -93,17 +93,41 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
                     {person.skills.map((s) => <Badge key={s} variant="outline">{s}</Badge>)}
                   </div>
                 } />
-                <div className="flex items-center justify-between gap-4 pt-1">
-                  <span className="text-xs text-muted-foreground">Move to another team</span>
-                  <ChangeTeamForm
-                    userId={person.id}
-                    currentTeamIds={person.teamMemberships.map((tm) => tm.teamId)}
-                    allTeams={allTeams}
-                  />
-                </div>
               </CardContent>
             </Card>
           </div>
+
+          {!isManager && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle>Teams</CardTitle>
+                <CardDescription>
+                  A person can be active on more than one team at once — adding or removing keeps every past evaluation attributed
+                  exactly the way it was.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <PersonTeamsPanel
+                  personId={person.id}
+                  activeMemberships={person.teamMemberships.map((tm) => ({ id: tm.id, teamId: tm.teamId, teamName: tm.team.name, joinedAt: tm.joinedAt }))}
+                  allTeams={allTeams}
+                />
+                {membershipHistory.length > 0 && (
+                  <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">History</p>
+                    {membershipHistory.map((h) => (
+                      <div key={h.id} className="flex items-center justify-between text-xs">
+                        <Link href={`/teams/${h.teamId}`} className="text-foreground hover:underline">{h.teamName}</Link>
+                        <span className="text-muted-foreground">
+                          {h.joinedAt.toLocaleDateString()} – {h.leftAt ? h.leftAt.toLocaleDateString() : "Present"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {isManager && (
             <Card className="mt-4">

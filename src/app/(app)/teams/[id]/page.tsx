@@ -4,14 +4,13 @@ import { requireSession } from "@/lib/permissions";
 import { getTeamDetail } from "@/lib/queries/teams";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DimensionBars } from "@/components/charts/dimension-bars";
 import { ScoreBadge } from "@/components/dashboard/score-badge";
 import { UrlCards } from "@/components/projects/url-cards";
 import { EditTeamManagersForm } from "@/components/teams/edit-team-managers-form";
+import { TeamMembersPanel } from "@/components/teams/team-members-panel";
 import { ActivityLog } from "@/components/shared/activity-log";
 import { Sparkles } from "lucide-react";
-import { initials } from "@/lib/utils";
 
 export default async function TeamDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireSession();
@@ -19,7 +18,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   const data = await getTeamDetail(id);
   if (!data) notFound();
 
-  const { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount, urls, deliverables, activity, allManagers, managerHistory } = data;
+  const { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount, urls, deliverables, activity, allManagers, managerHistory, memberHistory, availablePeople } = data;
 
   return (
     <div className="flex flex-col gap-6">
@@ -80,20 +79,14 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
         <Card>
           <CardHeader>
             <CardTitle>Members</CardTitle>
+            <CardDescription>A person can be active on more than one team at once.</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col divide-y divide-border">
-            {team.members.map((m) => (
-              <Link key={m.userId} href={`/people/${m.userId}`} className="flex items-center gap-2.5 py-2">
-                <Avatar className="h-7 w-7">
-                  <AvatarFallback>{initials(m.user.name)}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <p className="text-sm font-medium text-foreground">{m.user.name}</p>
-                  <p className="text-xs text-muted-foreground">{m.user.title}</p>
-                </div>
-              </Link>
-            ))}
-            {team.members.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No members yet.</p>}
+          <CardContent>
+            <TeamMembersPanel
+              teamId={team.id}
+              activeMembers={team.members.map((m) => ({ id: m.id, userId: m.userId, userName: m.user.name, joinedAt: m.joinedAt }))}
+              availablePeople={availablePeople}
+            />
           </CardContent>
         </Card>
       </div>
@@ -129,6 +122,30 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
                     {h.startedAt.toLocaleDateString()} – {h.endedAt ? h.endedAt.toLocaleDateString() : "Present"}
                   </span>
                   {!h.endedAt && <Badge variant="positive" className="text-[10px]">Current</Badge>}
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Member History</CardTitle>
+          <CardDescription>Every membership stint this team has had, including who&apos;s currently active.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col divide-y divide-border">
+          {memberHistory.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">No member history recorded yet.</p>
+          ) : (
+            memberHistory.map((h) => (
+              <div key={h.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <Link href={`/people/${h.userId}`} className="font-medium text-foreground hover:underline">{h.userName}</Link>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {h.joinedAt.toLocaleDateString()} – {h.leftAt ? h.leftAt.toLocaleDateString() : "Present"}
+                  </span>
+                  {!h.leftAt && <Badge variant="positive" className="text-[10px]">Current</Badge>}
                 </div>
               </div>
             ))

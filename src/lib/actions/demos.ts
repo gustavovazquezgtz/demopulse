@@ -282,7 +282,7 @@ export async function updateDemoTeams(demoId: string, teamIds: string[]) {
   const allRelevantTeamIds = [...new Set([...currentTeamIds, ...teamIds])];
   const teams = await prisma.team.findMany({
     where: { id: { in: allRelevantTeamIds } },
-    include: { managers: true, members: true },
+    include: { managers: true, members: { where: { leftAt: null } } },
   });
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const evaluatedIds = new Set((await prisma.evaluation.findMany({ where: { demoId }, select: { developerId: true } })).map((e) => e.developerId));
@@ -560,7 +560,7 @@ async function resolveEvaluationProjectId(demoProjectIds: string[], developerId:
  * (e.g. a guest evaluator from elsewhere).
  */
 async function resolveEvaluationTeamId(demoTeamIds: string[], developerId: string): Promise<string | null> {
-  const memberships = await prisma.teamMember.findMany({ where: { userId: developerId }, select: { teamId: true } });
+  const memberships = await prisma.teamMember.findMany({ where: { userId: developerId, leftAt: null }, select: { teamId: true } });
   const developerTeamIds = new Set(memberships.map((m) => m.teamId));
   const match = demoTeamIds.find((id) => developerTeamIds.has(id));
   if (match) return match;

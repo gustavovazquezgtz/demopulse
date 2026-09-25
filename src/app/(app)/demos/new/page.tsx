@@ -10,7 +10,7 @@ export default async function NewDemoPage() {
       orderBy: { name: "asc" },
       include: {
         managers: { include: { user: true } },
-        members: { include: { user: true } },
+        members: { where: { leftAt: null }, include: { user: true } },
       },
     }),
     prisma.user.findMany({ where: { role: { in: ["MANAGER", "CEO"] } }, orderBy: { name: "asc" } }),
