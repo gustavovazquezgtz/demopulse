@@ -19,7 +19,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   const data = await getTeamDetail(id);
   if (!data) notFound();
 
-  const { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount, urls, deliverables, activity, allManagers } = data;
+  const { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount, urls, deliverables, activity, allManagers, managerHistory } = data;
 
   return (
     <div className="flex flex-col gap-6">
@@ -109,6 +109,30 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
             allManagers={allManagers.map((m) => ({ id: m.id, name: m.name }))}
             initialSelectedIds={team.managers.map((m) => m.userId)}
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Manager History</CardTitle>
+          <CardDescription>Every manager this team has had, including who currently manages it.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col divide-y divide-border">
+          {managerHistory.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">No manager history recorded yet.</p>
+          ) : (
+            managerHistory.map((h) => (
+              <div key={h.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <Link href={`/people/${h.managerId}`} className="font-medium text-foreground hover:underline">{h.managerName}</Link>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {h.startedAt.toLocaleDateString()} – {h.endedAt ? h.endedAt.toLocaleDateString() : "Present"}
+                  </span>
+                  {!h.endedAt && <Badge variant="positive" className="text-[10px]">Current</Badge>}
+                </div>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
 

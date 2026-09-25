@@ -241,3 +241,55 @@ describe("Evaluation.teamId — team moves never rewrite evaluation history", ()
     expect(evaluations[0].teamId).toBe(oldTeam.id); // still tagged with the team it was given on
   });
 });
+
+// Regression test for manager reassignment: TeamManagerHistory must keep a
+// closed-out record of a manager's past stint even after they're replaced,
+// and the Ranking table's "previous managers" must reflect exactly that —
+// distinct from whoever currently manages the team.
+describe("TeamManagerHistory — reassigning a team's manager preserves who managed it before", () => {
+  let oldManager: { id: string };
+  let newManager: { id: string };
+  let team: { id: string };
+  let developer: { id: string };
+
+  beforeAll(async () => {
+    oldManager = await prisma.user.create({ data: { name: "Old Stint Manager", email: `old-mgr-${Date.now()}@test.local`, role: "MANAGER" } });
+    newManager = await prisma.user.create({ data: { name: "New Stint Manager", email: `new-mgr-${Date.now()}@test.local`, role: "MANAGER" } });
+    team = await prisma.team.create({ data: { name: `Manager History Fixture Team ${Date.now()}` } });
+    developer = await prisma.user.create({ data: { name: "Manager History Fixture Dev", email: `mh-dev-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    await prisma.teamMember.create({ data: { teamId: team.id, userId: developer.id } });
+
+    // Simulate what updateTeamManagers/removeManagerFromTeam +
+    // addManagerToTeam do: close the old stint, open a new one, and only
+    // the new manager remains in the live TeamManager table.
+    await prisma.teamManagerHistory.create({ data: { teamId: team.id, managerId: oldManager.id, endedAt: new Date() } });
+    await prisma.teamManager.create({ data: { teamId: team.id, userId: newManager.id } });
+    await prisma.teamManagerHistory.create({ data: { teamId: team.id, managerId: newManager.id } });
+  });
+
+  afterAll(async () => {
+    await prisma.teamManagerHistory.deleteMany({ where: { teamId: team.id } });
+    await prisma.teamManager.deleteMany({ where: { teamId: team.id } });
+    await prisma.teamMember.deleteMany({ where: { teamId: team.id } });
+    await prisma.team.delete({ where: { id: team.id } });
+    await prisma.user.deleteMany({ where: { id: { in: [oldManager.id, newManager.id, developer.id] } } });
+  });
+
+  it("getTeamDetail lists both stints, with only the new one marked current (endedAt null)", async () => {
+    const { getTeamDetail } = await import("@/lib/queries/teams");
+    const detail = await getTeamDetail(team.id);
+    expect(detail!.managerHistory).toHaveLength(2);
+    const oldStint = detail!.managerHistory.find((h) => h.managerId === oldManager.id)!;
+    const newStint = detail!.managerHistory.find((h) => h.managerId === newManager.id)!;
+    expect(oldStint.endedAt).not.toBeNull();
+    expect(newStint.endedAt).toBeNull();
+  });
+
+  it("Ranking shows the new manager as current and the old one as previous, not both as current", async () => {
+    const { getRanking } = await import("@/lib/queries/ranking");
+    const rows = await getRanking(UNSCOPED);
+    const row = rows.find((r) => r.id === developer.id)!;
+    expect(row.managers).toEqual([newManager.name]);
+    expect(row.previousManagers).toEqual([oldManager.name]);
+  });
+});

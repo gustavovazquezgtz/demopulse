@@ -93,7 +93,12 @@ export default async function RankingPage({
                       {r.teams.map((t) => <Badge key={t} variant="secondary">{t}</Badge>)}
                     </div>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{r.managers.join(", ") || "—"}</TableCell>
+                  <TableCell className="text-xs">
+                    <p className="text-muted-foreground">{r.managers.join(", ") || "—"}</p>
+                    {r.previousManagers.length > 0 && (
+                      <p className="text-[10px] text-muted-foreground/70">prev: {r.previousManagers.join(", ")}</p>
+                    )}
+                  </TableCell>
                   <TableCell><ScoreBadge score={r.score} /></TableCell>
                   <TableCell><TrendIndicator trend={r.trend} /></TableCell>
                   <TableCell className="text-xs text-muted-foreground">{r.attendance !== null ? `${Math.round(r.attendance)}%` : "—"}</TableCell>

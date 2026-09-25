@@ -16,6 +16,9 @@ const ACTION_LABEL: Record<string, string> = {
   MEMBER_JOINED: "Member joined",
   MEMBER_LEFT: "Member left",
   MANAGER_CHANGED: "Manager changed",
+  MANAGER_JOINED: "Manager joined",
+  MANAGER_LEFT: "Manager left",
+  MOVE_MANAGER_TEAMS: "Teams reassigned",
   UPDATE_TEAMS: "Teams updated",
   UPDATE_MANAGERS: "Managers updated",
   UPDATE_PARTICIPANTS: "Participants updated",
@@ -37,6 +40,15 @@ function describe(entry: ActivityEntry): string {
   }
   if (action === "MANAGER_CHANGED" && before?.managers && after?.managers) {
     return `${(before.managers as string[]).join(", ") || "—"} → ${(after.managers as string[]).join(", ")}`;
+  }
+  if (action === "MANAGER_JOINED" && after?.manager) {
+    return `${after.manager} became a manager of this team`;
+  }
+  if (action === "MANAGER_LEFT" && before?.manager) {
+    return `${before.manager} is no longer a manager of this team`;
+  }
+  if (action === "MOVE_MANAGER_TEAMS" && before?.teams && after?.teams) {
+    return `Now manages ${(after.teams as string[]).join(", ") || "no team"} (was ${(before.teams as string[]).join(", ") || "no team"})`;
   }
   if (action === "CREATE" && after?.name) {
     return `"${after.name}" created`;

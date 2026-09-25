@@ -106,5 +106,18 @@ export async function getTeamDetail(id: string) {
   const activity = await getActivityLog("Team", id);
   const allManagers = await prisma.user.findMany({ where: { role: { in: ["MANAGER", "CEO"] } }, orderBy: { name: "asc" } });
 
-  return { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount: evaluations.length, urls, deliverables, activity, allManagers };
+  const managerHistoryRows = await prisma.teamManagerHistory.findMany({
+    where: { teamId: id },
+    include: { manager: true },
+    orderBy: { startedAt: "desc" },
+  });
+  const managerHistory = managerHistoryRows.map((h) => ({
+    id: h.id,
+    managerId: h.managerId,
+    managerName: h.manager.name,
+    startedAt: h.startedAt,
+    endedAt: h.endedAt,
+  }));
+
+  return { team, demos, avgScore, attendanceRate, dims, insight, evaluationCount: evaluations.length, urls, deliverables, activity, allManagers, managerHistory };
 }

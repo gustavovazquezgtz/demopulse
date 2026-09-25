@@ -150,8 +150,9 @@ model User {
   updatedAt    DateTime @updatedAt
 
   // Team relationships
-  teamMemberships TeamMember[]
-  teamsManaged    TeamManager[]
+  teamMemberships    TeamMember[]
+  teamsManaged       TeamManager[]
+  teamManagerHistory TeamManagerHistory[]
 
   // Project relationships
   projectAssignments ProjectAssignment[]
@@ -192,11 +193,12 @@ model Team {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  managers    TeamManager[]
-  members     TeamMember[]
-  projects    ProjectTeam[]
-  demos       DemoTeam[]
-  evaluations Evaluation[]
+  managers       TeamManager[]
+  managerHistory TeamManagerHistory[]
+  members        TeamMember[]
+  projects       ProjectTeam[]
+  demos          DemoTeam[]
+  evaluations    Evaluation[]
 
   @@index([name])
 }
@@ -212,6 +214,26 @@ model TeamManager {
   @@unique([teamId, userId])
   @@index([userId])
   @@index([teamId])
+}
+
+// Every stint a manager has had on a team, kept forever — even after
+// updateTeamManagers/updateManagerTeams removes the live TeamManager row.
+// endedAt null means still actively managing; set once when they're
+// replaced, never edited afterward, so Rankings and Team detail can always
+// answer "who manages this now" vs "who used to."
+model TeamManagerHistory {
+  id        String    @id @default(cuid())
+  teamId    String
+  managerId String
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  team    Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  manager User @relation(fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([managerId])
+  @@index([teamId, endedAt])
 }
 
 model TeamMember {

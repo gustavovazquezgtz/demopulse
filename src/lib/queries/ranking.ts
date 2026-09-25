@@ -34,6 +34,24 @@ export async function getRanking(
     attendanceByPerson.set(a.userId, e);
   }
 
+  // Who used to manage each of these people's teams — TeamManagerHistory
+  // keeps a closed-out (endedAt set) row per past stint, so this survives
+  // any number of manager reassignments without needing to touch Evaluation
+  // or any other historical record.
+  const teamIds = [...new Set(people.flatMap((p) => p.teamMemberships.map((tm) => tm.teamId)))];
+  const pastManagerRows = teamIds.length
+    ? await prisma.teamManagerHistory.findMany({
+        where: { teamId: { in: teamIds }, endedAt: { not: null } },
+        include: { manager: true },
+      })
+    : [];
+  const pastManagersByTeam = new Map<string, Set<string>>();
+  for (const h of pastManagerRows) {
+    const set = pastManagersByTeam.get(h.teamId) ?? new Set<string>();
+    set.add(h.manager.name);
+    pastManagersByTeam.set(h.teamId, set);
+  }
+
   const rows = people.map((p) => {
     const scoresChrono = dedupeScoresByDemo(p.evaluationsReceived).map((s) => s.score);
     const trend = computeTrend(scoresChrono);
@@ -46,12 +64,16 @@ export async function getRanking(
     const att = attendanceByPerson.get(p.id);
 
     const managers = [...new Set(p.teamMemberships.flatMap((tm) => tm.team.managers.map((m) => m.user.name)))];
+    const previousManagers = [...new Set(p.teamMemberships.flatMap((tm) => [...(pastManagersByTeam.get(tm.teamId) ?? [])]))].filter(
+      (name) => !managers.includes(name)
+    );
 
     return {
       id: p.id,
       name: p.name,
       teams: p.teamMemberships.map((tm) => tm.team.name), // "Team / Project" — one concept, see section 7
       managers,
+      previousManagers,
       score: trend.current,
       trend: trend.trend,
       attendance: att ? (att.present / att.total) * 100 : null,

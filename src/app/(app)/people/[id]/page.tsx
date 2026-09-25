@@ -10,6 +10,7 @@ import { DimensionBars } from "@/components/charts/dimension-bars";
 import { InsightCard } from "@/components/insights/insight-card";
 import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
 import { ChangeTeamForm } from "@/components/people/change-team-form";
+import { ManagerTeamsForm } from "@/components/people/manager-teams-form";
 import { ActivityLog } from "@/components/shared/activity-log";
 import { initials, formatScore } from "@/lib/utils";
 
@@ -19,7 +20,8 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
   const data = await getPersonProfile(id);
   if (!data) notFound();
 
-  const { person, evaluations, scoresByTeam, trend, confidence, attendance, avgParticipation, managerOpinions, insights, alerts, recognitions, dims, allTeams, activity } = data;
+  const { person, evaluations, scoresByTeam, trend, confidence, attendance, avgParticipation, managerOpinions, insights, alerts, recognitions, dims, allTeams, activity, managedTeamIds, managerHistory } = data;
+  const isManager = person.role === "MANAGER" || person.role === "CEO";
 
   return (
     <div className="flex flex-col gap-6">
@@ -102,6 +104,33 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
               </CardContent>
             </Card>
           </div>
+
+          {isManager && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle>Teams Managed</CardTitle>
+                <CardDescription>
+                  Reassigning teams keeps every past stint on record — a team&apos;s previous managers stay visible even after this changes.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <ManagerTeamsForm managerId={person.id} allTeams={allTeams} initialSelectedIds={managedTeamIds} />
+                {managerHistory.length > 0 && (
+                  <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">History</p>
+                    {managerHistory.map((h) => (
+                      <div key={h.id} className="flex items-center justify-between text-xs">
+                        <Link href={`/teams/${h.teamId}`} className="text-foreground hover:underline">{h.teamName}</Link>
+                        <span className="text-muted-foreground">
+                          {h.startedAt.toLocaleDateString()} – {h.endedAt ? h.endedAt.toLocaleDateString() : "Present"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {scoresByTeam.length > 0 && (
             <Card className="mt-4">

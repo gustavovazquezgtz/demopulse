@@ -6,6 +6,45 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/permissions";
 
 /**
+ * Adds a manager to a team: opens the live TeamManager row, a fresh
+ * TeamManagerHistory stint (endedAt null = "still managing this team"), and
+ * mirrors onto the linked Project's manager list. Does not itself write an
+ * AuditLog row — callers batch that so a bulk change produces one readable
+ * entry instead of one per manager.
+ */
+async function addManagerToTeam(teamId: string, managerId: string) {
+  await prisma.teamManager.create({ data: { teamId, userId: managerId } });
+  await prisma.teamManagerHistory.create({ data: { teamId, managerId } });
+
+  const projectTeam = await prisma.projectTeam.findFirst({ where: { teamId } });
+  if (projectTeam) {
+    await prisma.projectManager.upsert({
+      where: { projectId_userId: { projectId: projectTeam.projectId, userId: managerId } },
+      update: {},
+      create: { projectId: projectTeam.projectId, userId: managerId },
+    });
+  }
+}
+
+/**
+ * Removes a manager from a team: deletes the live TeamManager row and closes
+ * out their open TeamManagerHistory stint (endedAt = now) rather than
+ * deleting it — that's the whole point of keeping manager history.
+ */
+async function removeManagerFromTeam(teamId: string, managerId: string) {
+  await prisma.teamManager.deleteMany({ where: { teamId, userId: managerId } });
+  await prisma.teamManagerHistory.updateMany({
+    where: { teamId, managerId, endedAt: null },
+    data: { endedAt: new Date() },
+  });
+
+  const projectTeam = await prisma.projectTeam.findFirst({ where: { teamId } });
+  if (projectTeam) {
+    await prisma.projectManager.deleteMany({ where: { projectId: projectTeam.projectId, userId: managerId } });
+  }
+}
+
+/**
  * Creates a new Team. Team and Project are one concept for the user (see
  * ARCHITECTURE.md), so this also creates a matching Project of the same
  * name and links it — nobody has to separately set up "the project side."
@@ -21,6 +60,7 @@ export async function createTeam(input: { name: string; description?: string; ma
       name,
       description: input.description?.trim() || undefined,
       managers: { create: input.managerIds.map((userId) => ({ userId })) },
+      managerHistory: { create: input.managerIds.map((managerId) => ({ managerId })) },
     },
   });
 
@@ -128,8 +168,8 @@ export async function updateTeamManagers(teamId: string, managerIds: string[]) {
   const session = await requireSession();
   if (managerIds.length === 0) throw new Error("A team needs at least one manager.");
 
-  const [team, currentManagers] = await Promise.all([
-    prisma.team.findUniqueOrThrow({ where: { id: teamId }, include: { projects: true } }),
+  const [, currentManagers] = await Promise.all([
+    prisma.team.findUniqueOrThrow({ where: { id: teamId } }),
     prisma.teamManager.findMany({ where: { teamId }, include: { user: true } }),
   ]);
 
@@ -139,14 +179,10 @@ export async function updateTeamManagers(teamId: string, managerIds: string[]) {
 
   const newManagers = await prisma.user.findMany({ where: { id: { in: managerIds } } });
 
-  await prisma.teamManager.deleteMany({ where: { teamId } });
-  await prisma.teamManager.createMany({ data: managerIds.map((userId) => ({ teamId, userId })) });
-
-  const projectId = team.projects[0]?.projectId;
-  if (projectId) {
-    await prisma.projectManager.deleteMany({ where: { projectId } });
-    await prisma.projectManager.createMany({ data: managerIds.map((userId) => ({ projectId, userId })) });
-  }
+  const toAdd = managerIds.filter((id) => !currentIds.has(id));
+  const toRemove = [...currentIds].filter((id) => !nextIds.has(id));
+  for (const id of toRemove) await removeManagerFromTeam(teamId, id);
+  for (const id of toAdd) await addManagerToTeam(teamId, id);
 
   await prisma.auditLog.create({
     data: {
@@ -161,4 +197,78 @@ export async function updateTeamManagers(teamId: string, managerIds: string[]) {
 
   revalidatePath(`/teams/${teamId}`);
   revalidatePath("/teams");
+}
+
+/**
+ * Reassigns a manager to a different set of teams from their own profile —
+ * the manager-side equivalent of moveTeamMember, except managers can manage
+ * more than one team at once, so this is a set update, not a single move.
+ * Every add/remove is tracked in TeamManagerHistory, so a team's past
+ * managers (and a manager's own past teams) stay visible even after this
+ * runs — never overwritten, only closed out with an endedAt timestamp.
+ */
+export async function updateManagerTeams(managerId: string, teamIds: string[]) {
+  const session = await requireSession();
+
+  const [manager, currentAssignments] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { id: managerId } }),
+    prisma.teamManager.findMany({ where: { userId: managerId }, include: { team: true } }),
+  ]);
+
+  const currentTeamIds = new Set(currentAssignments.map((a) => a.teamId));
+  const nextTeamIds = new Set(teamIds);
+  if (currentTeamIds.size === nextTeamIds.size && [...currentTeamIds].every((id) => nextTeamIds.has(id))) return;
+
+  const toAdd = teamIds.filter((id) => !currentTeamIds.has(id));
+  const toRemove = [...currentTeamIds].filter((id) => !nextTeamIds.has(id));
+
+  if (toRemove.length > 0) {
+    const managerCounts = await prisma.teamManager.groupBy({ by: ["teamId"], where: { teamId: { in: toRemove } }, _count: true });
+    const orphaned = managerCounts.find((c) => c._count === 1);
+    if (orphaned) {
+      const team = currentAssignments.find((a) => a.teamId === orphaned.teamId)!.team;
+      throw new Error(`Cannot remove ${manager.name} from "${team.name}" — they're its only manager.`);
+    }
+  }
+
+  const addedTeams = await prisma.team.findMany({ where: { id: { in: toAdd } } });
+  const removedTeams = currentAssignments.filter((a) => toRemove.includes(a.teamId)).map((a) => a.team);
+
+  for (const id of toRemove) await removeManagerFromTeam(id, managerId);
+  for (const id of toAdd) await addManagerToTeam(id, managerId);
+
+  const oldTeamNames = currentAssignments.map((a) => a.team.name);
+  const newTeamNames = [...new Set([...currentAssignments.filter((a) => !toRemove.includes(a.teamId)).map((a) => a.team.name), ...addedTeams.map((t) => t.name)])];
+
+  await prisma.auditLog.createMany({
+    data: [
+      {
+        userId: session.user.id,
+        entityType: "User",
+        entityId: managerId,
+        action: "MOVE_MANAGER_TEAMS",
+        before: { teams: oldTeamNames },
+        after: { teams: newTeamNames },
+      },
+      ...removedTeams.map((t) => ({
+        userId: session.user.id,
+        entityType: "Team",
+        entityId: t.id,
+        action: "MANAGER_LEFT",
+        before: { manager: manager.name },
+      })),
+      ...addedTeams.map((t) => ({
+        userId: session.user.id,
+        entityType: "Team",
+        entityId: t.id,
+        action: "MANAGER_JOINED",
+        after: { manager: manager.name },
+      })),
+    ],
+  });
+
+  revalidatePath("/people");
+  revalidatePath(`/people/${managerId}`);
+  revalidatePath("/teams");
+  for (const id of [...toAdd, ...toRemove]) revalidatePath(`/teams/${id}`);
 }

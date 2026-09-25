@@ -115,6 +115,20 @@ export async function getPersonProfile(id: string) {
   const allTeams = await prisma.team.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
   const activity = await getActivityLog("User", id);
 
+  // Only meaningful for MANAGER/CEO people — a manager can manage several
+  // teams at once, so this is a set (current) plus a full stint history
+  // (current and past), not a single "current team" like a developer has.
+  let managedTeamIds: string[] = [];
+  let managerHistory: { id: string; teamId: string; teamName: string; startedAt: Date; endedAt: Date | null }[] = [];
+  if (person.role === "MANAGER" || person.role === "CEO") {
+    const [teamsManaged, historyRows] = await Promise.all([
+      prisma.teamManager.findMany({ where: { userId: id }, select: { teamId: true } }),
+      prisma.teamManagerHistory.findMany({ where: { managerId: id }, include: { team: true }, orderBy: { startedAt: "desc" } }),
+    ]);
+    managedTeamIds = teamsManaged.map((t) => t.teamId);
+    managerHistory = historyRows.map((h) => ({ id: h.id, teamId: h.teamId, teamName: h.team.name, startedAt: h.startedAt, endedAt: h.endedAt }));
+  }
+
   return {
     person,
     evaluations,
@@ -131,6 +145,8 @@ export async function getPersonProfile(id: string) {
     dims,
     allTeams,
     activity,
+    managedTeamIds,
+    managerHistory,
   };
 }
 
