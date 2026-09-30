@@ -134,7 +134,7 @@ export default async function SettingsPage() {
         <TabsContent value="employee-bank">
           <Card>
             <CardHeader>
-              <CardTitle>Group Rating Thresholds</CardTitle>
+              <CardTitle>Group Score Thresholds</CardTitle>
               <CardDescription>
                 Controls only the <em>Suggested Group</em> shown in Employee Bank — never overwrites a manager&apos;s own Group selection.
               </CardDescription>

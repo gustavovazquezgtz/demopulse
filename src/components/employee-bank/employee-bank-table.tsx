@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
 import { ProspectHoverCard } from "./prospect-hover-card";
-import { InlineEditNumber, InlineEditText, QuickNoteCell, GroupCell } from "./cells";
+import { CurrencyCell, InlineEditText, QuickNoteCell, GroupCell } from "./cells";
 import { EmployeeDrawer } from "./employee-drawer";
 import { createSavedView, deleteSavedView } from "@/lib/actions/prospects";
 import { bulkUpdateEmployeeBank } from "@/lib/actions/employee-bank";
@@ -151,13 +151,17 @@ export function EmployeeBankTable({
       }),
       columnHelper.accessor("currentSalary", {
         header: "Current Salary",
-        size: 120,
-        cell: (c) => <InlineEditNumber userId={c.row.original.id} field="currentSalary" value={c.getValue()} placeholder="—" />,
+        size: 170,
+        cell: (c) => <CurrencyCell userId={c.row.original.id} field="currentSalary" value={c.getValue()} />,
       }),
       columnHelper.accessor("rating", {
         header: "Rating",
         size: 80,
-        cell: (c) => <InlineEditNumber userId={c.row.original.id} field="rating" value={c.getValue()} min={0} max={10} placeholder="—" />,
+        cell: (c) => (
+          <span className="px-1.5 text-xs text-foreground" title="Taken from this employee's demo evaluation score — not manually captured.">
+            {c.getValue() ?? "—"}
+          </span>
+        ),
       }),
       columnHelper.accessor("group", {
         header: "Group",

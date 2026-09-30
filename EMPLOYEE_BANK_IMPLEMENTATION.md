@@ -1,5 +1,16 @@
 # Employee Bank & Prospect Management — Implementation Plan
 
+## Amendment (post-v1): Rating is derived, not captured
+
+Everywhere below that says "rating" as a manually-entered 0-10 number is
+superseded: `EmployeeBankProfile.rating` was removed. Rating is now the
+employee's live demo evaluation score (`averageScore` over their COMPLETED
+`Evaluation` rows, 0-100 scale) — read at query time, never stored or typed
+in. `suggestGroup` and `DEFAULT_GROUP_THRESHOLDS` were updated to match
+(90-100 → A, 70-89 → B, 0-69 → C). Everything else in this document
+(Group is still manual-only, override notes, audit trail, etc.) is
+unchanged.
+
 ## 0. Scope decisions (read this first)
 
 This spec is large. To ship a working, coherent v1 rather than a half-built

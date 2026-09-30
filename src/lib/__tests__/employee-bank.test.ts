@@ -3,24 +3,24 @@ import { prisma } from "@/lib/prisma";
 import { UNSCOPED } from "@/lib/queries/dashboard";
 import { suggestGroup, isActiveProspectStatus, requiresOutcomeReason, DEFAULT_GROUP_THRESHOLDS } from "@/lib/employee-bank/scoring";
 
-describe("suggestGroup — pure rating-threshold logic, never touches the manual Group", () => {
-  it("maps rating 9-10 to A, 7-8 to B, 0-6 to C with default thresholds", () => {
-    expect(suggestGroup(10)).toBe("A");
-    expect(suggestGroup(9)).toBe("A");
-    expect(suggestGroup(8)).toBe("B");
-    expect(suggestGroup(7)).toBe("B");
-    expect(suggestGroup(6)).toBe("C");
+describe("suggestGroup — pure evaluation-score-threshold logic, never touches the manual Group", () => {
+  it("maps score 90-100 to A, 70-89 to B, 0-69 to C with default thresholds", () => {
+    expect(suggestGroup(100)).toBe("A");
+    expect(suggestGroup(90)).toBe("A");
+    expect(suggestGroup(89)).toBe("B");
+    expect(suggestGroup(70)).toBe("B");
+    expect(suggestGroup(69)).toBe("C");
     expect(suggestGroup(0)).toBe("C");
   });
 
-  it("returns null when there is no rating yet — never guesses", () => {
+  it("returns null when there are no evaluations yet — never guesses", () => {
     expect(suggestGroup(null)).toBeNull();
   });
 
   it("respects custom, configurable thresholds instead of the hardcoded defaults", () => {
-    const strict = { aMin: 9.5, bMin: 8 };
-    expect(suggestGroup(9, strict)).toBe("B"); // would be A under defaults
-    expect(suggestGroup(9, DEFAULT_GROUP_THRESHOLDS)).toBe("A");
+    const strict = { aMin: 95, bMin: 80 };
+    expect(suggestGroup(90, strict)).toBe("B"); // would be A under defaults
+    expect(suggestGroup(90, DEFAULT_GROUP_THRESHOLDS)).toBe("A");
   });
 });
 
@@ -56,6 +56,7 @@ describe("getEmployeeBankRows / getEmployeeBankProfile", () => {
   let employee: { id: string };
   let manager: { id: string };
   let project: { id: string };
+  let demoId: string;
   const prospectIds: string[] = [];
 
   beforeAll(async () => {
@@ -63,8 +64,24 @@ describe("getEmployeeBankRows / getEmployeeBankProfile", () => {
     manager = await prisma.user.create({ data: { name: "Bank Fixture Manager", email: `bank-mgr-${Date.now()}@test.local`, role: "MANAGER" } });
     project = await prisma.project.create({ data: { name: `Bank Fixture Project ${Date.now()}`, status: "ACTIVE" } });
 
+    // A 95-avg evaluation score → suggested Group A (default thresholds),
+    // while the manager has manually kept them at B — this is what
+    // groupDiffers is meant to catch.
+    const demo = await prisma.demo.create({
+      data: {
+        title: "Bank Fixture Demo", date: new Date(), startTime: new Date(), endTime: new Date(), status: "COMPLETED",
+        hostManagerId: manager.id, createdById: manager.id,
+        invitees: { create: [{ userId: manager.id, role: "EVALUATOR_MANAGER" }, { userId: employee.id, role: "ATTENDEE_MEMBER" }] },
+        attendees: { create: [{ userId: manager.id, status: "PRESENT" }, { userId: employee.id, status: "PRESENT" }] },
+      },
+    });
+    demoId = demo.id;
+    await prisma.evaluation.create({
+      data: { demoId: demo.id, developerId: employee.id, evaluatorId: manager.id, projectId: project.id, status: "COMPLETED", score: 95 },
+    });
+
     await prisma.employeeBankProfile.create({
-      data: { userId: employee.id, rating: 9, group: "B", groupOverrideNote: "New hire, want another cycle of evidence before A." },
+      data: { userId: employee.id, group: "B", groupOverrideNote: "New hire, want another cycle of evidence before A." },
     });
 
     const active1 = await prisma.employeeProspect.create({
@@ -85,6 +102,10 @@ describe("getEmployeeBankRows / getEmployeeBankProfile", () => {
   afterAll(async () => {
     await prisma.employeeProspect.deleteMany({ where: { id: { in: prospectIds } } });
     await prisma.employeeBankProfile.deleteMany({ where: { userId: employee.id } });
+    await prisma.evaluation.deleteMany({ where: { demoId } });
+    await prisma.demoAttendee.deleteMany({ where: { demoId } });
+    await prisma.demoInvitee.deleteMany({ where: { demoId } });
+    await prisma.demo.delete({ where: { id: demoId } });
     await prisma.project.delete({ where: { id: project.id } });
     await prisma.user.deleteMany({ where: { id: { in: [employee.id, manager.id] } } });
   });
@@ -106,11 +127,11 @@ describe("getEmployeeBankRows / getEmployeeBankProfile", () => {
     expect(row.rejectedProspectCount).toBe(1);
   });
 
-  it("flags groupDiffers when the manual Group (B) disagrees with the rating-based suggestion (A for rating 9), without changing the stored Group", async () => {
+  it("flags groupDiffers when the manual Group (B) disagrees with the score-based suggestion (A for a 95 evaluation score), without changing the stored Group", async () => {
     const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
     const rows = await getEmployeeBankRows(UNSCOPED);
     const row = rows.find((r) => r.id === employee.id)!;
-    expect(row.rating).toBe(9);
+    expect(row.rating).toBe(95); // rating IS the evaluation score, never manually captured
     expect(row.suggestedGroup).toBe("A");
     expect(row.group).toBe("B"); // the manager's own call — untouched
     expect(row.groupDiffers).toBe(true);

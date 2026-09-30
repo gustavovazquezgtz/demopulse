@@ -28,17 +28,18 @@ export function GroupThresholdsForm({ thresholds }: { thresholds: GroupThreshold
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Group A minimum rating</Label>
-          <Input type="number" min={0} max={10} value={aMin} onChange={(e) => setAMin(Number(e.target.value))} />
+          <Label className="text-xs">Group A minimum score</Label>
+          <Input type="number" min={0} max={100} value={aMin} onChange={(e) => setAMin(Number(e.target.value))} />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Group B minimum rating</Label>
-          <Input type="number" min={0} max={10} value={bMin} onChange={(e) => setBMin(Number(e.target.value))} />
+          <Label className="text-xs">Group B minimum score</Label>
+          <Input type="number" min={0} max={100} value={bMin} onChange={(e) => setBMin(Number(e.target.value))} />
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        Rating ≥ {aMin} → suggested A · {bMin}–{aMin - 1} → suggested B · below {bMin} → suggested C. This only changes the
-        <em> suggestion</em> — a manager&apos;s own Group selection is never overwritten automatically.
+        Evaluation score ≥ {aMin} → suggested A · {bMin}–{aMin - 1} → suggested B · below {bMin} → suggested C. The score
+        is the employee&apos;s live demo evaluation average (0-100), never a manually captured number. This only changes
+        the <em>suggestion</em> — a manager&apos;s own Group selection is never overwritten automatically.
       </p>
       <div className="flex justify-end">
         <Button size="sm" disabled={pending || aMin <= bMin} onClick={save}>{pending ? "Saving..." : "Save Thresholds"}</Button>

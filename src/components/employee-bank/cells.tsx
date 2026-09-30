@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { GroupBadge } from "./group-badge";
+import { SavingIndicator, SAVED_FLASH_MS } from "./saving-indicator";
 
 function saveError(e: unknown) {
   toast.error(e instanceof Error ? e.message : "Could not save this change");
@@ -28,12 +29,15 @@ export function InlineEditText({
 }) {
   const [draft, setDraft] = useState(value ?? "");
   const [pending, startTransition] = useTransition();
+  const [justSaved, setJustSaved] = useState(false);
 
   function commit() {
     if (draft === (value ?? "")) return;
     startTransition(async () => {
       try {
         await updateEmployeeBankField(userId, { [field]: draft || null });
+        setJustSaved(true);
+        setTimeout(() => setJustSaved(false), SAVED_FLASH_MS);
       } catch (e) {
         saveError(e);
         setDraft(value ?? "");
@@ -42,72 +46,99 @@ export function InlineEditText({
   }
 
   return (
-    <input
-      className={`w-full min-w-[7rem] rounded-sm border border-transparent bg-transparent px-1.5 py-1 text-xs hover:border-border focus:border-primary focus:outline-none ${className ?? ""}`}
-      value={draft}
-      placeholder={placeholder}
-      disabled={pending}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-      }}
-    />
+    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <input
+        className={`w-full min-w-[7rem] rounded-sm border border-transparent bg-transparent px-1.5 py-1 text-xs hover:border-border focus:border-primary focus:outline-none ${className ?? ""}`}
+        value={draft}
+        placeholder={placeholder}
+        disabled={pending}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+      />
+      <SavingIndicator pending={pending} justSaved={justSaved} />
+    </div>
   );
 }
 
-export function InlineEditNumber({
+function formatCurrency(n: number) {
+  return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
+/** Click-to-edit currency field: shows "$95,000" (comma-separated) once
+ * saved, and a plain-digits input while actively being edited. */
+export function CurrencyCell({
   userId,
   field,
   value,
-  min,
-  max,
-  placeholder,
 }: {
   userId: string;
-  field: "rating" | "currentSalary" | "proposedSalary";
+  field: "currentSalary" | "proposedSalary";
   value: number | null;
-  min?: number;
-  max?: number;
-  placeholder?: string;
 }) {
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value === null ? "" : String(value));
   const [pending, startTransition] = useTransition();
+  const [justSaved, setJustSaved] = useState(false);
+
+  function startEdit() {
+    setDraft(value === null ? "" : String(value));
+    setEditing(true);
+  }
 
   function commit() {
-    const num = draft === "" ? null : Number(draft);
-    if (num !== null && Number.isNaN(num)) {
-      setDraft(value === null ? "" : String(value));
-      return;
-    }
+    setEditing(false);
+    const cleaned = draft.replace(/[^0-9.]/g, "");
+    const num = cleaned === "" ? null : Number(cleaned);
+    if (num !== null && Number.isNaN(num)) return;
     if (num === (value ?? null)) return;
     startTransition(async () => {
       try {
         await updateEmployeeBankField(userId, { [field]: num });
+        setJustSaved(true);
+        setTimeout(() => setJustSaved(false), SAVED_FLASH_MS);
       } catch (e) {
         saveError(e);
-        setDraft(value === null ? "" : String(value));
       }
     });
   }
 
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="text"
+        inputMode="decimal"
+        className="w-full min-w-[6rem] rounded-sm border border-primary bg-transparent px-1.5 py-1 text-xs focus:outline-none"
+        value={draft}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") setEditing(false);
+        }}
+      />
+    );
+  }
+
   return (
-    <input
-      type="number"
-      min={min}
-      max={max}
-      className="w-16 rounded-sm border border-transparent bg-transparent px-1.5 py-1 text-xs hover:border-border focus:border-primary focus:outline-none"
-      value={draft}
-      placeholder={placeholder}
-      disabled={pending}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+    <div
+      className="flex min-w-[6rem] cursor-text items-center gap-1.5 rounded-sm px-1.5 py-1 text-xs hover:border hover:border-border"
+      onClick={(e) => {
+        e.stopPropagation();
+        startEdit();
       }}
-    />
+    >
+      {value !== null ? (
+        <span className="text-foreground">${formatCurrency(value)}</span>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      )}
+      <SavingIndicator pending={pending} justSaved={justSaved} />
+    </div>
   );
 }
 
@@ -117,6 +148,7 @@ export function InlineEditNumber({
 export function QuickNoteCell({ userId, latestNote }: { userId: string; latestNote: string | null }) {
   const [draft, setDraft] = useState("");
   const [pending, startTransition] = useTransition();
+  const [justSaved, setJustSaved] = useState(false);
 
   function commit() {
     if (!draft.trim()) return;
@@ -124,6 +156,8 @@ export function QuickNoteCell({ userId, latestNote }: { userId: string; latestNo
       try {
         await addEmployeeNote(userId, "STAFFING", draft.trim());
         setDraft("");
+        setJustSaved(true);
+        setTimeout(() => setJustSaved(false), SAVED_FLASH_MS);
       } catch (e) {
         saveError(e);
       }
@@ -133,17 +167,20 @@ export function QuickNoteCell({ userId, latestNote }: { userId: string; latestNo
   return (
     <div className="flex flex-col gap-0.5" onClick={(e) => e.stopPropagation()}>
       {latestNote && <p className="truncate text-[10px] text-muted-foreground" title={latestNote}>{latestNote}</p>}
-      <input
-        className="w-full min-w-[8rem] rounded-sm border border-transparent bg-transparent px-1.5 py-1 text-xs hover:border-border focus:border-primary focus:outline-none"
-        value={draft}
-        placeholder="Add a note..."
-        disabled={pending}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        }}
-      />
+      <div className="flex items-center gap-1">
+        <input
+          className="w-full min-w-[8rem] rounded-sm border border-transparent bg-transparent px-1.5 py-1 text-xs hover:border-border focus:border-primary focus:outline-none"
+          value={draft}
+          placeholder="Add a note..."
+          disabled={pending}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+        />
+        <SavingIndicator pending={pending} justSaved={justSaved} />
+      </div>
     </div>
   );
 }
@@ -163,12 +200,15 @@ export function GroupCell({
   const [note, setNote] = useState(groupOverrideNote ?? "");
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [justSaved, setJustSaved] = useState(false);
 
   function apply(value: "A" | "B" | "C", overrideNote?: string) {
     startTransition(async () => {
       try {
         await updateEmployeeBankField(userId, { group: value, groupOverrideNote: overrideNote ?? null });
         setPopoverOpen(false);
+        setJustSaved(true);
+        setTimeout(() => setJustSaved(false), SAVED_FLASH_MS);
       } catch (e) {
         saveError(e);
       }
@@ -221,6 +261,7 @@ export function GroupCell({
         </PopoverContent>
       </Popover>
       {differs && <span title="Manual classification differs from suggested classification." className="text-warning">⚠</span>}
+      <SavingIndicator pending={pending} justSaved={justSaved} />
     </div>
   );
 }

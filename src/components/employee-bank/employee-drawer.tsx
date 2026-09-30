@@ -72,7 +72,13 @@ export function EmployeeDrawer({
                 </TabsList>
 
                 <TabsContent value="overview" className="flex flex-col gap-3 pt-3 text-sm">
-                  <Row label="Rating" value={profile.rating !== null ? String(profile.rating) : "—"} />
+                  <Row label="Rating" value={profile.rating !== null ? String(profile.rating) : "—"} custom={
+                    profile.rating !== null ? (
+                      <span className="text-right font-medium text-foreground" title="Taken from this employee's demo evaluation score — not manually captured.">
+                        {profile.rating}
+                      </span>
+                    ) : undefined
+                  } />
                   <Row label="Suggested Group" value={profile.suggestedGroup ?? "—"} />
                   {profile.groupOverrideNote && <Row label="Override Reason" value={profile.groupOverrideNote} />}
                   <Row label="Availability" value={enumLabel(profile.availability)} />
@@ -145,7 +151,6 @@ export function EmployeeDrawer({
                   <Row label="Evaluations" value={String(profile.evaluationCount)} />
                   <Row label="Confidence" value={profile.confidence} />
                   <Row label="Trend" custom={<TrendIndicator trend={profile.trend} delta={profile.trendDelta} />} />
-                  <Row label="Manual Rating" value={profile.rating !== null ? String(profile.rating) : "—"} />
                 </TabsContent>
 
                 <TabsContent value="notes" className="flex flex-col gap-2 pt-3">

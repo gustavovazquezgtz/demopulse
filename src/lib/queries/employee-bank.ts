@@ -25,13 +25,18 @@ type EmployeeWithBankData = Prisma.UserGetPayload<{ include: typeof employeeIncl
 
 function summarize(user: EmployeeWithBankData, thresholds: { aMin: number; bMin: number }) {
   const profile = user.employeeBankProfile;
-  const rating = profile?.rating ?? null;
   const group = (profile?.group as "A" | "B" | "C" | null) ?? null;
-  const suggested = suggestGroup(rating, thresholds);
 
   const scores = dedupeScoresByDemo(user.evaluationsReceived.map((e) => ({ demoId: e.demoId, demo: e.demo, score: e.score })));
   const trend = computeTrend(scores.map((s) => s.score));
   const confidence = computeConfidence(user.evaluationsReceived.length, new Set(user.evaluationsReceived.map((e) => e.evaluatorId)).size);
+
+  // Rating is not captured — it IS the live demo evaluation score. No
+  // evaluations yet means no rating yet (null), not a score of 0.
+  const hasEvaluations = user.evaluationsReceived.length > 0;
+  const score = averageScore(scores.map((s) => s.score));
+  const rating = hasEvaluations ? Math.round(score) : null;
+  const suggested = suggestGroup(hasEvaluations ? score : null, thresholds);
 
   const activeProspects = user.prospects.filter((p) => isActiveProspectStatus(p.status));
   const historicalProspects = user.prospects.filter((p) => !isActiveProspectStatus(p.status));
@@ -53,7 +58,7 @@ function summarize(user: EmployeeWithBankData, thresholds: { aMin: number; bMin:
     proposedSalary: profile?.proposedSalary ?? null,
     action: profile?.action ?? null,
     justification: profile?.justification ?? null,
-    score: averageScore(scores.map((s) => s.score)),
+    score,
     trend: trend.trend,
     trendDelta: trend.delta,
     evaluationCount: user.evaluationsReceived.length,
@@ -120,6 +125,31 @@ export async function getEmployeeBankProfile(userId: string) {
     allProjects,
     allManagers: allManagers.map((m) => ({ id: m.id, name: m.name })),
   };
+}
+
+/**
+ * Batched score lookup for one or more employees — shared by the actions
+ * layer so validating a Group choice against the suggested Group never has
+ * to duplicate the averageScore/dedupeScoresByDemo math.
+ */
+export async function getEmployeeScores(userIds: string[]): Promise<Map<string, { score: number; hasEvaluations: boolean }>> {
+  const evaluations = await prisma.evaluation.findMany({
+    where: { developerId: { in: userIds }, status: "COMPLETED" },
+    include: { demo: true },
+  });
+  const byUser = new Map<string, typeof evaluations>();
+  for (const e of evaluations) {
+    const list = byUser.get(e.developerId) ?? [];
+    list.push(e);
+    byUser.set(e.developerId, list);
+  }
+  const result = new Map<string, { score: number; hasEvaluations: boolean }>();
+  for (const userId of userIds) {
+    const evals = byUser.get(userId) ?? [];
+    const scores = dedupeScoresByDemo(evals.map((e) => ({ demoId: e.demoId, demo: e.demo, score: e.score })));
+    result.set(userId, { score: averageScore(scores.map((s) => s.score)), hasEvaluations: evals.length > 0 });
+  }
+  return result;
 }
 
 export async function getSavedViews() {

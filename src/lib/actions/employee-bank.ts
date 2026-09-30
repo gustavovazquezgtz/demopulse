@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/permissions";
 import { getGroupThresholds } from "@/lib/queries/app-settings";
-import { getEmployeeBankProfile } from "@/lib/queries/employee-bank";
+import { getEmployeeBankProfile, getEmployeeScores } from "@/lib/queries/employee-bank";
 import { suggestGroup } from "@/lib/employee-bank/scoring";
 
 /** RPC-style fetch used by the client-side drawer to load full detail
@@ -16,7 +16,6 @@ export async function fetchEmployeeBankProfile(userId: string) {
 }
 
 interface BankPatch {
-  rating?: number | null;
   group?: "A" | "B" | "C" | null;
   groupOverrideNote?: string | null;
   availability?: "AVAILABLE" | "PARTIALLY_ALLOCATED" | "FULLY_ALLOCATED";
@@ -29,21 +28,22 @@ interface BankPatch {
 /**
  * Single-field (or few-field) inline edit from the grid or the drawer.
  * Enforces the one hard rule from the spec: if the manually-set Group
- * disagrees with the rating-based suggested Group, a short explanatory
+ * disagrees with the score-based suggested Group, a short explanatory
  * note is required before the save is accepted — never silently allowed,
- * never auto-corrected.
+ * never auto-corrected. The score itself is never part of the patch — it's
+ * always read live from the developer's own Evaluation rows.
  */
 export async function updateEmployeeBankField(userId: string, patch: BankPatch) {
   const session = await requireSession();
   const existing = await prisma.employeeBankProfile.findUnique({ where: { userId } });
   const thresholds = await getGroupThresholds();
 
-  const nextRating = "rating" in patch ? patch.rating ?? null : existing?.rating ?? null;
   const nextGroup = "group" in patch ? patch.group : existing?.group ?? null;
   const nextNote = "groupOverrideNote" in patch ? patch.groupOverrideNote : existing?.groupOverrideNote ?? null;
 
   if (nextGroup) {
-    const suggested = suggestGroup(nextRating, thresholds);
+    const { score, hasEvaluations } = (await getEmployeeScores([userId])).get(userId)!;
+    const suggested = suggestGroup(hasEvaluations ? score : null, thresholds);
     if (suggested && nextGroup !== suggested && !nextNote?.trim()) {
       throw new Error("Manual classification differs from suggested classification — add a short note explaining why.");
     }
@@ -51,7 +51,6 @@ export async function updateEmployeeBankField(userId: string, patch: BankPatch) 
 
   const before = existing
     ? {
-        rating: existing.rating,
         group: existing.group,
         availability: existing.availability,
         action: existing.action,
@@ -116,10 +115,10 @@ export async function bulkUpdateEmployeeBank(userIds: string[], patch: BulkPatch
 
   if (patch.group) {
     const thresholds = await getGroupThresholds();
-    const profiles = await prisma.employeeBankProfile.findMany({ where: { userId: { in: userIds } } });
-    const ratingByUser = new Map(profiles.map((p) => [p.userId, p.rating]));
+    const scores = await getEmployeeScores(userIds);
     const anyDiffers = userIds.some((id) => {
-      const suggested = suggestGroup(ratingByUser.get(id) ?? null, thresholds);
+      const { score, hasEvaluations } = scores.get(id)!;
+      const suggested = suggestGroup(hasEvaluations ? score : null, thresholds);
       return suggested !== null && suggested !== patch.group;
     });
     if (anyDiffers && !patch.groupOverrideNote?.trim()) {

@@ -756,10 +756,13 @@ model AuditLog {
 // existing relations) already has — name/title/team/project all come from
 // there. Lazily created on first edit; no row yet just means "not yet
 // classified," not a data-integrity gap to backfill.
+//
+// No "rating" field: the staffing rating is the developer's live demo
+// evaluation score (averageScore over their Evaluation rows), never
+// manually captured — it's computed on read, not stored here.
 model EmployeeBankProfile {
   id                String               @id @default(cuid())
   userId            String               @unique
-  rating            Int? // 0-10 manual staffing rating ("Calif.") — distinct from Evaluation.score (0-100)
   group             EmployeeGroup? // the manager's final call — never auto-written by any suggestion logic
   groupOverrideNote String? // required by the UI when group disagrees with the suggested group
   availability      EmployeeAvailability @default(AVAILABLE)
