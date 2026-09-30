@@ -132,6 +132,62 @@ enum RecognitionSource {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Employee Bank / Prospecting
+// ─────────────────────────────────────────────────────────────────────────
+
+enum EmployeeGroup {
+  A
+  B
+  C
+}
+
+enum EmployeeAvailability {
+  AVAILABLE
+  PARTIALLY_ALLOCATED
+  FULLY_ALLOCATED
+}
+
+enum ProspectSource {
+  INTERNAL_STAFFING
+  CLIENT_REQUEST
+  MANAGER_RECOMMENDATION
+  SALES_OPPORTUNITY
+  REPLACEMENT
+  OTHER
+}
+
+enum ProspectStatus {
+  IDENTIFIED
+  PROFILE_BEING_PREPARED
+  PROFILE_SUBMITTED
+  CLIENT_REVIEWING
+  INTERVIEW_SCHEDULED
+  INTERVIEW_COMPLETED
+  PENDING_DECISION
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+  CANCELLED
+  ON_HOLD
+}
+
+enum ProspectOutcomeReason {
+  TECHNICAL_SKILLS
+  ENGLISH
+  SENIORITY
+  SALARY
+  CLIENT_PREFERENCE
+  ROLE_MISMATCH
+  PROJECT_CANCELLED
+  POSITION_FILLED
+  AVAILABILITY
+  EMPLOYEE_DECLINED
+  INTERVIEW_PERFORMANCE
+  TIMING
+  OTHER
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // People / Org structure
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -182,6 +238,15 @@ model User {
 
   recognitionsReceived Recognition[] @relation("RecognitionDeveloper")
 
+  // Employee Bank
+  employeeBankProfile   EmployeeBankProfile?
+  employeeNotesReceived EmployeeNote[]         @relation("EmployeeNoteSubject")
+  employeeNotesWritten  EmployeeNote[]         @relation("EmployeeNoteAuthor")
+  prospects             EmployeeProspect[]     @relation("ProspectEmployee")
+  prospectsOwned        EmployeeProspect[]     @relation("ProspectOwner")
+  prospectActivity      ProspectActivity[]
+  savedViewsCreated     EmployeeBankSavedView[]
+
   @@index([role])
   @@index([active])
 }
@@ -199,6 +264,7 @@ model Team {
   projects       ProjectTeam[]
   demos          DemoTeam[]
   evaluations    Evaluation[]
+  prospects      EmployeeProspect[]
 
   @@index([name])
 }
@@ -277,6 +343,7 @@ model Project {
   demos        DemoProject[]
   deliverables DemoDeliverable[]
   evaluations  Evaluation[]
+  prospects    EmployeeProspect[]
 
   @@index([status])
   @@index([name])
@@ -679,4 +746,115 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([userId])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Employee Bank / Prospecting
+// ─────────────────────────────────────────────────────────────────────────
+
+// 1:1 extension of a DEVELOPER User. Never duplicates fields User (or its
+// existing relations) already has — name/title/team/project all come from
+// there. Lazily created on first edit; no row yet just means "not yet
+// classified," not a data-integrity gap to backfill.
+model EmployeeBankProfile {
+  id                String               @id @default(cuid())
+  userId            String               @unique
+  rating            Int? // 0-10 manual staffing rating ("Calif.") — distinct from Evaluation.score (0-100)
+  group             EmployeeGroup? // the manager's final call — never auto-written by any suggestion logic
+  groupOverrideNote String? // required by the UI when group disagrees with the suggested group
+  availability      EmployeeAvailability @default(AVAILABLE)
+  currentSalary     Float?
+  proposedSalary    Float?
+  action            String? // free text: "Place", "Maintain", "Evaluate", "Review", ...
+  justification     String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model EmployeeNote {
+  id        String   @id @default(cuid())
+  userId    String // the employee this note is about
+  authorId  String
+  type      String // GENERAL | STAFFING | PROSPECT | EVALUATION | MANAGER
+  text      String
+  createdAt DateTime @default(now())
+
+  user   User @relation("EmployeeNoteSubject", fields: [userId], references: [id], onDelete: Cascade)
+  author User @relation("EmployeeNoteAuthor", fields: [authorId], references: [id])
+
+  @@index([userId])
+}
+
+// An employee being considered for a project/team/client. Never deleted —
+// "did not materialize" is a status + outcome reason, not a removed row,
+// so future staffing decisions can see the full history.
+model EmployeeProspect {
+  id                String                  @id @default(cuid())
+  employeeId        String
+  client            String?
+  projectId         String?
+  teamId            String?
+  role              String
+  ownerManagerId    String
+  source            ProspectSource
+  status            ProspectStatus          @default(IDENTIFIED)
+  interviewDate     DateTime?
+  expectedStartDate DateTime?
+  outcomeReason     ProspectOutcomeReason?
+  outcomeNotes      String?
+  technicalFeedback String?
+  englishFeedback   String?
+  clientFeedback    String?
+  generalNotes      String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  employee User     @relation("ProspectEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  project  Project? @relation(fields: [projectId], references: [id])
+  team     Team?    @relation(fields: [teamId], references: [id])
+  owner    User     @relation("ProspectOwner", fields: [ownerManagerId], references: [id])
+
+  activity ProspectActivity[]
+
+  @@index([employeeId])
+  @@index([status])
+  @@index([ownerManagerId])
+}
+
+// The prospect's permanent timeline — every status change, note, and
+// feedback entry. Never deleted, mirroring the Evaluation/TeamMember/
+// TeamManager history pattern already used throughout this app.
+model ProspectActivity {
+  id         String   @id @default(cuid())
+  prospectId String
+  actorId    String
+  action     String // CREATE | STATUS_CHANGE | NOTE | FEEDBACK | OUTCOME
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  prospect EmployeeProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  actor    User             @relation(fields: [actorId], references: [id])
+
+  @@index([prospectId])
+}
+
+model EmployeeBankSavedView {
+  id          String   @id @default(cuid())
+  name        String
+  filters     Json // serialized filter/sort/column-visibility state
+  createdById String
+  createdAt   DateTime @default(now())
+
+  createdBy User @relation(fields: [createdById], references: [id])
+}
+
+// Generic key-value settings store — starts with Employee Bank's group
+// rating thresholds, reusable for future configurable settings.
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
 }

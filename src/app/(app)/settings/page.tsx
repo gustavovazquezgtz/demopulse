@@ -1,5 +1,7 @@
 import { requireSession } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import { getGroupThresholds } from "@/lib/queries/app-settings";
+import { GroupThresholdsForm } from "@/components/employee-bank/group-thresholds-form";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -8,11 +10,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 export default async function SettingsPage() {
   await requireSession();
 
-  const [criteria, users, teams, projects] = await Promise.all([
+  const [criteria, users, teams, projects, groupThresholds] = await Promise.all([
     prisma.evaluationCriterion.findMany({ orderBy: { order: "asc" } }),
     prisma.user.findMany({ orderBy: { name: "asc" } }),
     prisma.team.count(),
     prisma.project.count(),
+    getGroupThresholds(),
   ]);
 
   const aiProvider = process.env.OPENAI_API_KEY ? "OpenAI (configured)" : "Rule-based (default, no API key configured)";
@@ -29,6 +32,7 @@ export default async function SettingsPage() {
           <TabsTrigger value="criteria">Evaluation Criteria</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="ai">AI Configuration</TabsTrigger>
+          <TabsTrigger value="employee-bank">Employee Bank</TabsTrigger>
           <TabsTrigger value="org">Organization</TabsTrigger>
         </TabsList>
 
@@ -125,6 +129,20 @@ export default async function SettingsPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="employee-bank">
+          <Card>
+            <CardHeader>
+              <CardTitle>Group Rating Thresholds</CardTitle>
+              <CardDescription>
+                Controls only the <em>Suggested Group</em> shown in Employee Bank — never overwrites a manager&apos;s own Group selection.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <GroupThresholdsForm thresholds={groupThresholds} />
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="org">

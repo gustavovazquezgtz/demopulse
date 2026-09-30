@@ -27,6 +27,11 @@ const ACTION_LABEL: Record<string, string> = {
   RESCHEDULE: "Rescheduled",
   START: "Started",
   REOPEN: "Reopened",
+  UPDATE_BANK_PROFILE: "Bank profile updated",
+  STATUS_CHANGE: "Status changed",
+  NOTE: "Note added",
+  FEEDBACK: "Feedback updated",
+  OUTCOME: "Outcome recorded",
 };
 
 function describe(entry: ActivityEntry): string {
@@ -60,6 +65,27 @@ function describe(entry: ActivityEntry): string {
   }
   if (action === "CREATE" && after?.name) {
     return `"${after.name}" created`;
+  }
+  if (action === "CREATE" && after?.role) {
+    return `Prospect created for ${(after.projectId ? "project" : after.client ? String(after.client) : "role")}: ${after.role}`;
+  }
+  if (action === "STATUS_CHANGE" && before?.status && after?.status) {
+    return `${String(before.status).replaceAll("_", " ")} → ${String(after.status).replaceAll("_", " ")}`;
+  }
+  if (action === "NOTE" && after?.text) {
+    return `"${after.text}"`;
+  }
+  if (action === "OUTCOME" && after?.outcomeNotes) {
+    return `"${after.outcomeNotes}"`;
+  }
+  if (action === "FEEDBACK") {
+    return "Technical/English/client feedback updated";
+  }
+  if (action === "UPDATE_BANK_PROFILE" && after) {
+    return Object.entries(after as Record<string, unknown>)
+      .filter(([k]) => k !== "groupOverrideNote")
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ");
   }
   return ACTION_LABEL[action] ?? action;
 }
