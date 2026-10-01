@@ -20,7 +20,7 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
   const data = await getPersonProfile(id);
   if (!data) notFound();
 
-  const { person, evaluations, scoresByTeam, trend, confidence, attendance, avgParticipation, managerOpinions, insights, alerts, recognitions, dims, allTeams, activity, managedTeamIds, managerHistory, membershipHistory } = data;
+  const { person, evaluations, scoresByTeam, score, trend, confidence, attendance, avgParticipation, managerOpinions, insights, alerts, recognitions, dims, allTeams, activity, managedTeamIds, managerHistory, membershipHistory } = data;
   const isManager = person.role === "MANAGER" || person.role === "CEO";
 
   return (
@@ -34,7 +34,7 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
             <h1 className="text-xl font-semibold text-foreground">{person.name}</h1>
             <p className="text-sm text-muted-foreground">{person.title ?? "Developer"}</p>
             <div className="mt-1 flex items-center gap-2">
-              <ScoreBadge score={trend.current} />
+              <ScoreBadge score={score} />
               <TrendIndicator trend={trend.trend} delta={trend.delta} />
               <Badge variant="outline">{confidence} confidence · {evaluations.length} evaluations</Badge>
             </div>

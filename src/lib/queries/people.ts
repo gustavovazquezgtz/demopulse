@@ -43,7 +43,10 @@ export async function listPeople(
       active: p.active,
       teams: p.teamMemberships.map((tm) => tm.team.name),
       projects: p.projectAssignments.map((pa) => ({ name: pa.project.name, isPrimary: pa.isPrimary })),
-      currentScore: trend.current,
+      // Flat average — every COMPLETED evaluation counts equally,
+      // including a 0 from a no-show/non-participation demo. trend.trend
+      // (the arrow) is still recency-based; the number itself is not.
+      currentScore: averageScore(scores.map((s) => s.score)),
       trend: trend.trend,
       evaluationCount: p.evaluationsReceived.length,
       confidence,
@@ -93,6 +96,10 @@ export async function getPersonProfile(id: string) {
   });
 
   const scoresByDemo = dedupeScoresByDemo(evaluations.map((e) => ({ demoId: e.demoId, demo: e.demo, score: e.score })));
+  // Flat average — every COMPLETED evaluation counts equally, including a
+  // 0 from a no-show/non-participation demo. trend (direction/delta) is
+  // still recency-based and shown as a separate indicator alongside this.
+  const score = averageScore(scoresByDemo.map((s) => s.score));
   const trend = computeTrend(scoresByDemo.map((s) => s.score));
   const confidence = computeConfidence(evaluations.length, new Set(evaluations.map((e) => e.evaluatorId)).size);
 
@@ -152,6 +159,7 @@ export async function getPersonProfile(id: string) {
     evaluations,
     scoresByDemo,
     scoresByTeam,
+    score,
     trend,
     confidence,
     attendance: { total: attendance.length, rate: attendanceRate, rows: attendance },

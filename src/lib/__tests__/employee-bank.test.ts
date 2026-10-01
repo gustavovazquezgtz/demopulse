@@ -185,14 +185,16 @@ describe("getProspectAnalytics — failure reasons", () => {
   });
 });
 
-// Regression test for a real production bug: Employee Bank's Rating/Score
-// used averageScore(all historical demo points) while Ranking and the
-// Person profile both use trend.current (recency-weighted) for "the"
-// score — same person, same data, two different numbers on two different
-// pages. Reproduces the exact pattern that surfaced it: mostly poor early
-// evaluations followed by one strong recent one, which makes trend.current
-// (last window) much higher than a flat historical average.
-describe("Employee Bank score must match trend.current — never a different formula than Ranking/Person profile", () => {
+// Regression test for two real production issues, fixed together:
+// (1) Employee Bank's Rating/Score must use the exact same formula as
+// Ranking/Person profile for the same person — no two pages may disagree
+// on "the" score for the same underlying data.
+// (2) That shared formula is a FLAT average over every COMPLETED
+// evaluation, each counted equally — including a 0 from a demo the person
+// no-showed or didn't participate in. It is explicitly NOT a
+// recency-weighted "current window" value: a single recent strong demo
+// must not outweigh a longer history of poor/absent ones.
+describe("score is a flat, equally-weighted average of every evaluation (0s included) — consistent everywhere", () => {
   let employee: { id: string };
   let manager: { id: string };
   let project: { id: string };
@@ -243,11 +245,62 @@ describe("Employee Bank score must match trend.current — never a different for
     expect(bankRow.score).toBeCloseTo(rankingRow.score!, 5);
   });
 
-  it("is driven by the recent window (≈83), not a flat average of the whole history (≈39)", async () => {
+  it("is the flat average of the whole history (≈39), not just the most recent demo (≈83)", async () => {
     const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
     const rows = await getEmployeeBankRows(UNSCOPED);
     const row = rows.find((r) => r.id === employee.id)!;
-    expect(row.score).toBeGreaterThan(70);
-    expect(row.rating).toBe(83);
+    // (0 + 33.33 + 83.33) / 3 ≈ 38.9
+    expect(row.score).toBeGreaterThan(35);
+    expect(row.score).toBeLessThan(45);
+    expect(row.rating).toBe(39);
+  });
+});
+
+describe("a 0-score demo (no-show / non-participation) counts toward the average like any other", () => {
+  let employee: { id: string };
+  let manager: { id: string };
+  let project: { id: string };
+  const demoIds: string[] = [];
+
+  beforeAll(async () => {
+    employee = await prisma.user.create({ data: { name: "Zero Counts Fixture Dev", email: `zero-counts-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    manager = await prisma.user.create({ data: { name: "Zero Counts Fixture Manager", email: `zero-counts-mgr-${Date.now()}@test.local`, role: "MANAGER" } });
+    project = await prisma.project.create({ data: { name: `Zero Counts Fixture Project ${Date.now()}`, status: "ACTIVE" } });
+
+    // One demo scored 100, one scored 0 (absence/non-participation). The
+    // average must be 50, not 100 (which is what you'd get if the 0 were
+    // silently excluded).
+    for (const score of [100, 0]) {
+      const date = new Date();
+      const demo = await prisma.demo.create({
+        data: {
+          title: `Zero Counts Demo (score ${score})`, date, startTime: date, endTime: date, status: "COMPLETED",
+          hostManagerId: manager.id, createdById: manager.id,
+          invitees: { create: [{ userId: manager.id, role: "EVALUATOR_MANAGER" }, { userId: employee.id, role: "ATTENDEE_MEMBER" }] },
+          attendees: { create: [{ userId: manager.id, status: score === 0 ? "ABSENT" : "PRESENT" }, { userId: employee.id, status: score === 0 ? "ABSENT" : "PRESENT" }] },
+        },
+      });
+      demoIds.push(demo.id);
+      await prisma.evaluation.create({
+        data: { demoId: demo.id, developerId: employee.id, evaluatorId: manager.id, projectId: project.id, status: "COMPLETED", score },
+      });
+    }
+  });
+
+  afterAll(async () => {
+    await prisma.evaluation.deleteMany({ where: { demoId: { in: demoIds } } });
+    await prisma.demoAttendee.deleteMany({ where: { demoId: { in: demoIds } } });
+    await prisma.demoInvitee.deleteMany({ where: { demoId: { in: demoIds } } });
+    await prisma.demo.deleteMany({ where: { id: { in: demoIds } } });
+    await prisma.project.delete({ where: { id: project.id } });
+    await prisma.user.deleteMany({ where: { id: { in: [employee.id, manager.id] } } });
+  });
+
+  it("averages to 50, not 100 — the 0 is never dropped from the calculation", async () => {
+    const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
+    const rows = await getEmployeeBankRows(UNSCOPED);
+    const row = rows.find((r) => r.id === employee.id)!;
+    expect(row.rating).toBe(50);
+    expect(row.evaluationCount).toBe(2);
   });
 });

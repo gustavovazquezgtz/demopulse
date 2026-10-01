@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Scope } from "./dashboard";
-import { computeTrend, dedupeScoresByDemo } from "@/lib/scoring";
+import { averageScore, computeTrend, dedupeScoresByDemo } from "@/lib/scoring";
 import { sortRows } from "@/lib/sort";
 
 export async function getRanking(
@@ -74,7 +74,12 @@ export async function getRanking(
       teams: p.teamMemberships.map((tm) => tm.team.name), // "Team / Project" — one concept, see section 7
       managers,
       previousManagers,
-      score: trend.current,
+      // Every COMPLETED evaluation counts equally toward the average —
+      // including a 0 from a no-show/non-participation demo. This is a
+      // flat average, not the recency-weighted trend.current: "Score" is
+      // the person's overall record, trend/delta (below) is the separate
+      // improving/declining indicator shown alongside it.
+      score: averageScore(scoresChrono),
       trend: trend.trend,
       attendance: att ? (att.present / att.total) * 100 : null,
       ai: dim("AI"),
