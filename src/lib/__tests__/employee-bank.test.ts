@@ -184,3 +184,70 @@ describe("getProspectAnalytics — failure reasons", () => {
     expect(salary.count).toBeGreaterThanOrEqual(1);
   });
 });
+
+// Regression test for a real production bug: Employee Bank's Rating/Score
+// used averageScore(all historical demo points) while Ranking and the
+// Person profile both use trend.current (recency-weighted) for "the"
+// score — same person, same data, two different numbers on two different
+// pages. Reproduces the exact pattern that surfaced it: mostly poor early
+// evaluations followed by one strong recent one, which makes trend.current
+// (last window) much higher than a flat historical average.
+describe("Employee Bank score must match trend.current — never a different formula than Ranking/Person profile", () => {
+  let employee: { id: string };
+  let manager: { id: string };
+  let project: { id: string };
+  const demoIds: string[] = [];
+
+  beforeAll(async () => {
+    employee = await prisma.user.create({ data: { name: "Score Consistency Fixture Dev", email: `score-consistency-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    manager = await prisma.user.create({ data: { name: "Score Consistency Fixture Manager", email: `score-consistency-mgr-${Date.now()}@test.local`, role: "MANAGER" } });
+    project = await prisma.project.create({ data: { name: `Score Consistency Fixture Project ${Date.now()}`, status: "ACTIVE" } });
+
+    // Three demos, scores trending sharply upward: 0, 33.33, 83.33 — same
+    // shape as the real case that exposed this bug.
+    const scores = [0, 33.33, 83.33];
+    for (let i = 0; i < scores.length; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - (scores.length - i) * 7);
+      const demo = await prisma.demo.create({
+        data: {
+          title: `Score Consistency Demo ${i}`, date, startTime: date, endTime: date, status: "COMPLETED",
+          hostManagerId: manager.id, createdById: manager.id,
+          invitees: { create: [{ userId: manager.id, role: "EVALUATOR_MANAGER" }, { userId: employee.id, role: "ATTENDEE_MEMBER" }] },
+          attendees: { create: [{ userId: manager.id, status: "PRESENT" }, { userId: employee.id, status: "PRESENT" }] },
+        },
+      });
+      demoIds.push(demo.id);
+      await prisma.evaluation.create({
+        data: { demoId: demo.id, developerId: employee.id, evaluatorId: manager.id, projectId: project.id, status: "COMPLETED", score: scores[i] },
+      });
+    }
+  });
+
+  afterAll(async () => {
+    await prisma.evaluation.deleteMany({ where: { demoId: { in: demoIds } } });
+    await prisma.demoAttendee.deleteMany({ where: { demoId: { in: demoIds } } });
+    await prisma.demoInvitee.deleteMany({ where: { demoId: { in: demoIds } } });
+    await prisma.demo.deleteMany({ where: { id: { in: demoIds } } });
+    await prisma.project.delete({ where: { id: project.id } });
+    await prisma.user.deleteMany({ where: { id: { in: [employee.id, manager.id] } } });
+  });
+
+  it("Employee Bank's score equals Ranking's score for the same person", async () => {
+    const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
+    const { getRanking } = await import("@/lib/queries/ranking");
+    const bankRows = await getEmployeeBankRows(UNSCOPED);
+    const rankingRows = await getRanking(UNSCOPED);
+    const bankRow = bankRows.find((r) => r.id === employee.id)!;
+    const rankingRow = rankingRows.find((r) => r.id === employee.id)!;
+    expect(bankRow.score).toBeCloseTo(rankingRow.score!, 5);
+  });
+
+  it("is driven by the recent window (≈83), not a flat average of the whole history (≈39)", async () => {
+    const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
+    const rows = await getEmployeeBankRows(UNSCOPED);
+    const row = rows.find((r) => r.id === employee.id)!;
+    expect(row.score).toBeGreaterThan(70);
+    expect(row.rating).toBe(83);
+  });
+});

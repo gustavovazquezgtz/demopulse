@@ -4,7 +4,7 @@ import type { Scope } from "./dashboard";
 import { getActivityLog } from "./activity";
 import { getGroupThresholds } from "./app-settings";
 import { suggestGroup, isActiveProspectStatus } from "@/lib/employee-bank/scoring";
-import { averageScore, computeTrend, dedupeScoresByDemo, computeConfidence } from "@/lib/scoring";
+import { computeTrend, dedupeScoresByDemo, computeConfidence } from "@/lib/scoring";
 
 const employeeInclude = {
   employeeBankProfile: true,
@@ -33,8 +33,16 @@ function summarize(user: EmployeeWithBankData, thresholds: { aMin: number; bMin:
 
   // Rating is not captured — it IS the live demo evaluation score. No
   // evaluations yet means no rating yet (null), not a score of 0.
+  //
+  // IMPORTANT: this must be trend.current, not averageScore(all points).
+  // Ranking and the Person profile both show trend.current as "the"
+  // score for an employee (recency-weighted: the most recent window of
+  // demos, not a flat historical average) — using a different formula
+  // here would make Employee Bank disagree with those pages for the same
+  // person on the same data, which is exactly the inconsistency this is
+  // guarding against.
   const hasEvaluations = user.evaluationsReceived.length > 0;
-  const score = averageScore(scores.map((s) => s.score));
+  const score = trend.current ?? 0;
   const rating = hasEvaluations ? Math.round(score) : null;
   const suggested = suggestGroup(hasEvaluations ? score : null, thresholds);
 
@@ -130,7 +138,11 @@ export async function getEmployeeBankProfile(userId: string) {
 /**
  * Batched score lookup for one or more employees — shared by the actions
  * layer so validating a Group choice against the suggested Group never has
- * to duplicate the averageScore/dedupeScoresByDemo math.
+ * to duplicate the trend/dedupeScoresByDemo math. Uses the exact same
+ * trend.current value shown as "the" score everywhere else (Ranking,
+ * Person profile, this row's own Rating column) — not a flat historical
+ * average — so the server-side validation never disagrees with what's on
+ * screen.
  */
 export async function getEmployeeScores(userIds: string[]): Promise<Map<string, { score: number; hasEvaluations: boolean }>> {
   const evaluations = await prisma.evaluation.findMany({
@@ -147,7 +159,8 @@ export async function getEmployeeScores(userIds: string[]): Promise<Map<string, 
   for (const userId of userIds) {
     const evals = byUser.get(userId) ?? [];
     const scores = dedupeScoresByDemo(evals.map((e) => ({ demoId: e.demoId, demo: e.demo, score: e.score })));
-    result.set(userId, { score: averageScore(scores.map((s) => s.score)), hasEvaluations: evals.length > 0 });
+    const trend = computeTrend(scores.map((s) => s.score));
+    result.set(userId, { score: trend.current ?? 0, hasEvaluations: evals.length > 0 });
   }
   return result;
 }
