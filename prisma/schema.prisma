@@ -247,6 +247,11 @@ model User {
   prospectActivity      ProspectActivity[]
   savedViewsCreated     EmployeeBankSavedView[]
 
+  // 1:1 Sessions
+  oneOnOnesAsManager   OneOnOneSession[] @relation("OneOnOneManager")
+  oneOnOnesAsDeveloper OneOnOneSession[] @relation("OneOnOneDeveloper")
+  oneOnOneNotesWritten OneOnOneNote[]
+
   @@index([role])
   @@index([active])
 }
@@ -860,4 +865,80 @@ model AppSetting {
   key       String   @id
   value     Json
   updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 1:1 Sessions (manager <-> developer check-ins)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum OneOnOneFormat {
+  IN_PERSON
+  VIDEO_CALL // Teams/Zoom/Meet/etc. — kept generic rather than one enum value per tool
+  PHONE_CALL
+  CHAT
+  OTHER
+}
+
+// A single logged 1:1. Nothing here is write-once: recommendations,
+// feedback, format, even the summary can all be edited later — the
+// "bitácora" is the AuditLog trail (via ActivityLog) plus the append-only
+// OneOnOneNote list, not immutability of the session itself.
+model OneOnOneSession {
+  id               String         @id @default(cuid())
+  managerId        String
+  developerId      String
+  date             DateTime
+  format           OneOnOneFormat @default(IN_PERSON)
+  location         String? // free text detail alongside format: room name, meeting link, etc.
+  recommendations  String? // what the manager told/recommended to the person
+  feedbackReceived String? // what the manager heard back from the person
+  summary          String? // AI-generated (or manually edited) summary
+  summarySource    String? // provider name ("openai" | "rule-based") that produced the current summary text, or null if never generated
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  manager   User @relation("OneOnOneManager", fields: [managerId], references: [id])
+  developer User @relation("OneOnOneDeveloper", fields: [developerId], references: [id])
+
+  recordings OneOnOneRecording[]
+  notes      OneOnOneNote[]
+
+  @@index([managerId])
+  @@index([developerId])
+  @@index([date])
+}
+
+// Audio is stored directly (Bytes/bytea) — fine at this org's scale and
+// recording-length cap (short voice clips, capped client-side and by
+// next.config's serverActions.bodySizeLimit to stay under common
+// serverless request-body limits). A session can have several recordings
+// rather than one, so a long 1:1 can be captured in segments.
+model OneOnOneRecording {
+  id          String    @id @default(cuid())
+  sessionId   String
+  audio       Bytes
+  mimeType    String
+  sizeBytes   Int
+  durationSec Int?
+  transcript  String?
+  createdAt   DateTime  @default(now())
+
+  session OneOnOneSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+// Append-only follow-up additions — "quiero poder... agregar más
+// información" without overwriting the original capture.
+model OneOnOneNote {
+  id        String   @id @default(cuid())
+  sessionId String
+  authorId  String
+  text      String
+  createdAt DateTime @default(now())
+
+  session OneOnOneSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  author  User             @relation(fields: [authorId], references: [id])
+
+  @@index([sessionId])
 }

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireSession } from "@/lib/permissions";
 import { getPersonProfile } from "@/lib/queries/people";
+import { getOneOnOnesForPerson } from "@/lib/queries/one-on-ones";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -12,12 +13,15 @@ import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
 import { PersonTeamsPanel } from "@/components/people/person-teams-panel";
 import { ManagerTeamsForm } from "@/components/people/manager-teams-form";
 import { ActivityLog } from "@/components/shared/activity-log";
+import { formatLabel } from "@/lib/one-on-ones/labels";
+import { Plus, Mic } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { initials, formatScore } from "@/lib/utils";
 
 export default async function PersonProfilePage({ params }: { params: Promise<{ id: string }> }) {
   await requireSession();
   const { id } = await params;
-  const data = await getPersonProfile(id);
+  const [data, oneOnOnes] = await Promise.all([getPersonProfile(id), getOneOnOnesForPerson(id)]);
   if (!data) notFound();
 
   const { person, evaluations, scoresByTeam, score, trend, confidence, attendance, avgParticipation, managerOpinions, insights, alerts, recognitions, dims, allTeams, activity, managedTeamIds, managerHistory, membershipHistory } = data;
@@ -56,6 +60,7 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="history">Evaluation History</TabsTrigger>
           <TabsTrigger value="opinions">Manager Opinions</TabsTrigger>
+          <TabsTrigger value="oneOnOnes">1:1s</TabsTrigger>
           <TabsTrigger value="insights">AI Insights</TabsTrigger>
           <TabsTrigger value="recognition">Recognition</TabsTrigger>
         </TabsList>
@@ -250,6 +255,34 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
                   </div>
                 </CardContent>
               </Card>
+            ))}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="oneOnOnes">
+          <div className="mb-3 flex justify-end">
+            <Button asChild size="sm">
+              <Link href={`/one-on-ones/new?developerId=${person.id}`}><Plus className="h-3.5 w-3.5" /> Log a 1:1</Link>
+            </Button>
+          </div>
+          <div className="flex flex-col gap-2">
+            {oneOnOnes.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No 1:1s logged with {person.name} yet.</p>}
+            {oneOnOnes.map((o) => (
+              <Link
+                key={o.id}
+                href={`/one-on-ones/${o.id}`}
+                className="flex items-center justify-between rounded-md border border-border px-4 py-3 hover:bg-surface-muted/60"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-foreground">{o.date.toLocaleDateString()}</p>
+                    <Badge variant="secondary" className="text-[10px]">{formatLabel(o.format)}</Badge>
+                    {o.recordingCount > 0 && <Mic className="h-3 w-3 text-muted-foreground" />}
+                  </div>
+                  <p className="text-xs text-muted-foreground">With {o.managerName}</p>
+                  {o.summary && <p className="mt-1 max-w-md truncate text-xs text-muted-foreground italic">&ldquo;{o.summary}&rdquo;</p>}
+                </div>
+              </Link>
             ))}
           </div>
         </TabsContent>

@@ -32,6 +32,10 @@ const ACTION_LABEL: Record<string, string> = {
   NOTE: "Note added",
   FEEDBACK: "Feedback updated",
   OUTCOME: "Outcome recorded",
+  UPDATE: "Updated",
+  RECORDING_ADDED: "Recording added",
+  RECORDING_REMOVED: "Recording removed",
+  SUMMARY_GENERATED: "Summary generated",
 };
 
 function describe(entry: ActivityEntry): string {
@@ -86,6 +90,18 @@ function describe(entry: ActivityEntry): string {
       .filter(([k]) => k !== "groupOverrideNote")
       .map(([k, v]) => `${k}: ${v}`)
       .join(", ");
+  }
+  if (action === "UPDATE" && after) {
+    return Object.entries(after as Record<string, unknown>)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ");
+  }
+  if (action === "RECORDING_ADDED" && after?.sizeBytes) {
+    const kb = Math.round(Number(after.sizeBytes) / 1024);
+    return `${kb} KB${after.transcribed ? " · transcribed" : ""}`;
+  }
+  if (action === "SUMMARY_GENERATED" && after?.source) {
+    return `via ${after.source}`;
   }
   return ACTION_LABEL[action] ?? action;
 }

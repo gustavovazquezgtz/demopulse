@@ -15,6 +15,7 @@ import {
   Award,
   FileBarChart,
   Settings,
+  MessageCircle,
 } from "lucide-react";
 
 export interface NavItem {
@@ -32,6 +33,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/people", label: "People", icon: Users },
   { href: "/teams", label: "Teams / Projects", icon: UsersRound },
   { href: "/employee-bank", label: "Employee Bank", icon: Landmark },
+  { href: "/one-on-ones", label: "1:1s", icon: MessageCircle },
   { href: "/evaluations", label: "Evaluations", icon: ClipboardCheck, managerOnly: true },
   { href: "/ranking", label: "Engineer Ranking", icon: Trophy },
   { href: "/team-comparison", label: "Team Comparison", icon: BarChart3 },

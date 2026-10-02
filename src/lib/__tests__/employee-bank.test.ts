@@ -277,7 +277,11 @@ describe("a 0-score demo (no-show / non-participation) counts toward the average
           title: `Zero Counts Demo (score ${score})`, date, startTime: date, endTime: date, status: "COMPLETED",
           hostManagerId: manager.id, createdById: manager.id,
           invitees: { create: [{ userId: manager.id, role: "EVALUATOR_MANAGER" }, { userId: employee.id, role: "ATTENDEE_MEMBER" }] },
-          attendees: { create: [{ userId: manager.id, status: score === 0 ? "ABSENT" : "PRESENT" }, { userId: employee.id, status: score === 0 ? "ABSENT" : "PRESENT" }] },
+          // The evaluator (manager) was there either way — only the
+          // developer being scored 0 is the one who didn't show/
+          // participate. A manager can't evaluate a session they
+          // themselves were absent from.
+          attendees: { create: [{ userId: manager.id, status: "PRESENT" }, { userId: employee.id, status: score === 0 ? "ABSENT" : "PRESENT" }] },
         },
       });
       demoIds.push(demo.id);
