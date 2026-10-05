@@ -9,8 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
 import { GroupBadge } from "./group-badge";
 import { CreateProspectDialog } from "./create-prospect-dialog";
+import { AssignOperationsForm } from "./assign-operations-form";
 import { fetchEmployeeBankProfile } from "@/lib/actions/employee-bank";
-import { enumLabel, statusTone } from "@/lib/employee-bank/labels";
+import { enumLabel, statusTone, interviewResultTone } from "@/lib/employee-bank/labels";
 
 type Profile = Awaited<ReturnType<typeof fetchEmployeeBankProfile>>;
 
@@ -102,6 +103,17 @@ export function EmployeeDrawer({
                   {profile.justification && <Row label="Justification" value={profile.justification} />}
 
                   <div className="mt-2 border-t border-border pt-3">
+                    <p className="mb-2 text-xs font-semibold text-muted-foreground">Operations</p>
+                    <AssignOperationsForm
+                      userId={profile.id}
+                      assignedToOperations={profile.assignedToOperations}
+                      assignedToOperationsAt={profile.assignedToOperationsAt}
+                      operationsProjectName={profile.operationsProjectName}
+                      allProjects={profile.allProjects}
+                    />
+                  </div>
+
+                  <div className="mt-2 border-t border-border pt-3">
                     <p className="mb-2 text-xs font-semibold text-muted-foreground">Recent Activity</p>
                     {profile.activity.length === 0 ? (
                       <p className="text-xs text-muted-foreground">No changes recorded yet.</p>
@@ -142,6 +154,29 @@ export function EmployeeDrawer({
                       <p className="mb-2 text-xs font-semibold text-muted-foreground">
                         Prospect History ({profile.historicalProspectCount}) — {profile.acceptedProspectCount} accepted, {profile.rejectedProspectCount} not selected
                       </p>
+                      <div className="flex flex-col gap-2">
+                        {profile.historicalProspects.map((p) => (
+                          <Link
+                            key={p.id}
+                            href={`/employee-bank/prospects/${p.id}`}
+                            className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:bg-surface-muted/60"
+                          >
+                            <div>
+                              <p className="font-medium text-foreground">{p.projectName ?? p.client ?? "Unnamed opportunity"}</p>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                                {p.interviewAttended === true && p.interviewResult && (
+                                  <Badge variant={interviewResultTone(p.interviewResult)} className="text-[9px]">{enumLabel(p.interviewResult)}</Badge>
+                                )}
+                                {p.interviewAttended === false && p.interviewNonAttendanceReason && (
+                                  <Badge variant="critical" className="text-[9px]">Missed — {enumLabel(p.interviewNonAttendanceReason)}</Badge>
+                                )}
+                                {p.outcomeReason && <span className="text-[10px] text-muted-foreground">{enumLabel(p.outcomeReason)}</span>}
+                              </div>
+                            </div>
+                            <Badge variant={statusTone(p.status)} className="text-[10px]">{enumLabel(p.status)}</Badge>
+                          </Link>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </TabsContent>

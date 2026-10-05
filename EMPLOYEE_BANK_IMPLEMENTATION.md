@@ -11,6 +11,33 @@ in. `suggestGroup` and `DEFAULT_GROUP_THRESHOLDS` were updated to match
 (Group is still manual-only, override notes, audit trail, etc.) is
 unchanged.
 
+## Amendment 2: Interview outcomes and "Dar de alta" (Operations assignment)
+
+Two additions, both additive (no existing field/behavior changed):
+
+- **Interview outcome** (`EmployeeProspect.interviewAttended` /
+  `interviewResult` / `interviewNonAttendanceReason` /
+  `interviewNonAttendanceNotes`): records what happened at a *specific*
+  interview — did the person attend, and if so did it go well or badly;
+  if not, why not. Deliberately separate from `status`/`outcomeReason`
+  (which describe the opportunity's overall fate) — an interview can go
+  badly without the opportunity being over, and "didn't show up to this
+  interview" has its own reason vocabulary distinct from "why the whole
+  thing ultimately failed." Surfaced on the Prospect Detail page, the
+  prospect hover card, and the drawer's now-expanded Prospect History
+  list (previously just a count — "ver oportunidades y resultados"
+  needed the actual list, not a number).
+- **"Dar de alta" / Assigned to Operations**
+  (`EmployeeBankProfile.assignedToOperations` / `assignedToOperationsAt` /
+  `operationsProjectId`): a manager-triggered action meaning "this person
+  was placed on a real client account." When a project/account is given,
+  `assignToOperations` mirrors a real `ProjectAssignment` the same way
+  `addTeamMember` already does (first active assignment becomes primary)
+  — this is never a Employee-Bank-only flag; the person shows up as
+  actually assigned to that project in People/Ranking/Team rosters too.
+  Also sets availability to FULLY_ALLOCATED. New "Operations" column +
+  filter in the main grid, and a control in the drawer's Overview tab.
+
 ## 0. Scope decisions (read this first)
 
 This spec is large. To ship a working, coherent v1 rather than a half-built

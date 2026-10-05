@@ -47,6 +47,21 @@ export const PROSPECT_OUTCOME_REASON_OPTIONS = [
 
 export const AVAILABILITY_OPTIONS = ["AVAILABLE", "PARTIALLY_ALLOCATED", "FULLY_ALLOCATED"] as const;
 
+export const INTERVIEW_RESULT_OPTIONS = ["WENT_WELL", "WENT_BADLY"] as const;
+
+export const INTERVIEW_NON_ATTENDANCE_REASON_OPTIONS = [
+  "SCHEDULING_CONFLICT",
+  "EMPLOYEE_DECLINED",
+  "EMPLOYEE_UNAVAILABLE",
+  "NO_SHOW",
+  "CLIENT_CANCELLED",
+  "OTHER",
+] as const;
+
+export function interviewResultTone(result: string): "positive" | "critical" {
+  return result === "WENT_WELL" ? "positive" : "critical";
+}
+
 export function requiresOutcomeReasonLabel(status: string): string {
   return `Moving to "${enumLabel(status)}" requires an outcome reason — this is how we learn why prospects don't materialize.`;
 }

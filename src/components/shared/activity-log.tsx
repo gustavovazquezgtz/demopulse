@@ -36,6 +36,9 @@ const ACTION_LABEL: Record<string, string> = {
   RECORDING_ADDED: "Recording added",
   RECORDING_REMOVED: "Recording removed",
   SUMMARY_GENERATED: "Summary generated",
+  INTERVIEW_OUTCOME: "Interview outcome recorded",
+  ASSIGNED_TO_OPERATIONS: "Assigned to Operations",
+  UNASSIGNED_FROM_OPERATIONS: "Removed from Operations",
 };
 
 function describe(entry: ActivityEntry): string {
@@ -102,6 +105,13 @@ function describe(entry: ActivityEntry): string {
   }
   if (action === "SUMMARY_GENERATED" && after?.source) {
     return `via ${after.source}`;
+  }
+  if (action === "INTERVIEW_OUTCOME" && after) {
+    if (after.attended) return `Attended — ${String(after.result).replaceAll("_", " ")}`;
+    return `Did not attend — ${String(after.reason).replaceAll("_", " ")}`;
+  }
+  if (action === "ASSIGNED_TO_OPERATIONS") {
+    return after?.projectId ? "Linked to an account/project" : "No specific account linked yet";
   }
   return ACTION_LABEL[action] ?? action;
 }

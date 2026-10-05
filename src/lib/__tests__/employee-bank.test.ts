@@ -308,3 +308,102 @@ describe("a 0-score demo (no-show / non-participation) counts toward the average
     expect(row.evaluationCount).toBe(2);
   });
 });
+
+// Regression coverage for interview outcome tracking: an attended
+// interview's result and a missed interview's reason must both survive
+// into the query layer, on whichever list (active/historical) the
+// prospect's overall status puts it in — "see opportunities and results"
+// means the actual list, not just a count.
+describe("interview outcome fields surface through getEmployeeBankRows", () => {
+  let employee: { id: string };
+  let manager: { id: string };
+  let wentWellProspect: { id: string };
+  let missedProspect: { id: string };
+
+  beforeAll(async () => {
+    employee = await prisma.user.create({ data: { name: "Interview Outcome Fixture Dev", email: `interview-outcome-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    manager = await prisma.user.create({ data: { name: "Interview Outcome Fixture Manager", email: `interview-outcome-mgr-${Date.now()}@test.local`, role: "MANAGER" } });
+
+    wentWellProspect = await prisma.employeeProspect.create({
+      data: {
+        employeeId: employee.id, client: "Active Client", role: "Dev", ownerManagerId: manager.id, source: "OTHER",
+        status: "INTERVIEW_COMPLETED", interviewAttended: true, interviewResult: "WENT_WELL",
+      },
+    });
+    missedProspect = await prisma.employeeProspect.create({
+      data: {
+        employeeId: employee.id, client: "Missed Client", role: "Dev", ownerManagerId: manager.id, source: "OTHER",
+        status: "REJECTED", outcomeReason: "TIMING", interviewAttended: false,
+        interviewNonAttendanceReason: "SCHEDULING_CONFLICT", interviewNonAttendanceNotes: "Clashed with another client call.",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.employeeProspect.deleteMany({ where: { id: { in: [wentWellProspect.id, missedProspect.id] } } });
+    await prisma.user.deleteMany({ where: { id: { in: [employee.id, manager.id] } } });
+  });
+
+  it("an active prospect's attended interview result shows up in activeProspects", async () => {
+    const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
+    const rows = await getEmployeeBankRows(UNSCOPED);
+    const row = rows.find((r) => r.id === employee.id)!;
+    const active = row.activeProspects.find((p) => p.id === wentWellProspect.id)!;
+    expect(active.interviewAttended).toBe(true);
+    expect(active.interviewResult).toBe("WENT_WELL");
+  });
+
+  it("a rejected prospect's missed-interview reason shows up in the full profile's historicalProspects list", async () => {
+    const { getEmployeeBankProfile } = await import("@/lib/queries/employee-bank");
+    const profile = await getEmployeeBankProfile(employee.id);
+    const missed = profile!.historicalProspects.find((p) => p.id === missedProspect.id)!;
+    expect(missed.interviewAttended).toBe(false);
+    expect(missed.interviewNonAttendanceReason).toBe("SCHEDULING_CONFLICT");
+    expect(missed.outcomeReason).toBe("TIMING"); // the opportunity's own failure reason, kept separate
+  });
+});
+
+// Regression coverage for "Dar de alta" (assign to Operations): the flag,
+// timestamp, and linked account/project must all round-trip through the
+// query layer, and — mirroring what the real action does — a matching
+// ProjectAssignment must make the person show up as actually on that
+// project everywhere else in the app (People, Ranking, Team rosters),
+// not just inside Employee Bank.
+describe("assignedToOperations and its mirrored ProjectAssignment", () => {
+  let employee: { id: string };
+  let project: { id: string; name: string };
+
+  beforeAll(async () => {
+    employee = await prisma.user.create({ data: { name: "Ops Assignment Fixture Dev", email: `ops-assign-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    project = await prisma.project.create({ data: { name: `Ops Assignment Fixture Account ${Date.now()}`, status: "ACTIVE" } });
+
+    // Mirrors exactly what the assignToOperations action does.
+    await prisma.employeeBankProfile.create({
+      data: { userId: employee.id, assignedToOperations: true, assignedToOperationsAt: new Date(), operationsProjectId: project.id, availability: "FULLY_ALLOCATED" },
+    });
+    await prisma.projectAssignment.create({ data: { projectId: project.id, userId: employee.id, isPrimary: true } });
+  });
+
+  afterAll(async () => {
+    await prisma.projectAssignment.deleteMany({ where: { projectId: project.id } });
+    await prisma.employeeBankProfile.deleteMany({ where: { userId: employee.id } });
+    await prisma.project.delete({ where: { id: project.id } });
+    await prisma.user.delete({ where: { id: employee.id } });
+  });
+
+  it("getEmployeeBankRows reports assignedToOperations with the linked account name", async () => {
+    const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
+    const rows = await getEmployeeBankRows(UNSCOPED);
+    const row = rows.find((r) => r.id === employee.id)!;
+    expect(row.assignedToOperations).toBe(true);
+    expect(row.operationsProjectName).toBe(project.name);
+    expect(row.availability).toBe("FULLY_ALLOCATED");
+  });
+
+  it("the person shows up as actually assigned to that project, not just flagged in Employee Bank", async () => {
+    const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
+    const rows = await getEmployeeBankRows(UNSCOPED);
+    const row = rows.find((r) => r.id === employee.id)!;
+    expect(row.projects.some((p) => p.id === project.id)).toBe(true);
+  });
+});

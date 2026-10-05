@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Target } from "lucide-react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Badge } from "@/components/ui/badge";
-import { enumLabel, statusTone } from "@/lib/employee-bank/labels";
+import { enumLabel, statusTone, interviewResultTone } from "@/lib/employee-bank/labels";
 
 interface ActiveProspect {
   id: string;
@@ -18,6 +18,9 @@ interface ActiveProspect {
   interviewDate: Date | null;
   createdAt: Date;
   generalNotes: string | null;
+  interviewAttended?: boolean | null;
+  interviewResult?: string | null;
+  interviewNonAttendanceReason?: string | null;
 }
 
 // A real button with controlled open state — hovering opens it on desktop,
@@ -58,6 +61,12 @@ export function ProspectHoverCard({ prospects }: { prospects: ActiveProspect[] }
               <p className="text-xs text-muted-foreground">Owner: {p.ownerName}</p>
               {p.interviewDate && (
                 <p className="text-xs text-muted-foreground">Interview: {new Date(p.interviewDate).toLocaleString()}</p>
+              )}
+              {p.interviewAttended === true && p.interviewResult && (
+                <Badge variant={interviewResultTone(p.interviewResult)} className="w-fit text-[9px]">{enumLabel(p.interviewResult)}</Badge>
+              )}
+              {p.interviewAttended === false && p.interviewNonAttendanceReason && (
+                <Badge variant="critical" className="w-fit text-[9px]">Missed — {enumLabel(p.interviewNonAttendanceReason)}</Badge>
               )}
               {p.generalNotes && <p className="text-xs italic text-muted-foreground">&ldquo;{p.generalNotes}&rdquo;</p>}
               <Link href={`/employee-bank/prospects/${p.id}`} className="text-xs font-medium text-primary hover:underline">

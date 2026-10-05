@@ -187,6 +187,24 @@ enum ProspectOutcomeReason {
   OTHER
 }
 
+// How an attended interview went — distinct from the eventual
+// ProspectOutcomeReason (which is "why the whole opportunity failed").
+enum InterviewResult {
+  WENT_WELL
+  WENT_BADLY
+}
+
+// Why the person did not attend a scheduled interview at all — distinct
+// from InterviewResult (which only applies once they did attend).
+enum InterviewNonAttendanceReason {
+  SCHEDULING_CONFLICT
+  EMPLOYEE_DECLINED
+  EMPLOYEE_UNAVAILABLE
+  NO_SHOW
+  CLIENT_CANCELLED
+  OTHER
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // People / Org structure
 // ─────────────────────────────────────────────────────────────────────────
@@ -349,6 +367,7 @@ model Project {
   deliverables DemoDeliverable[]
   evaluations  Evaluation[]
   prospects    EmployeeProspect[]
+  operationsAssignees EmployeeBankProfile[]
 
   @@index([status])
   @@index([name])
@@ -775,10 +794,18 @@ model EmployeeBankProfile {
   proposedSalary    Float?
   action            String? // free text: "Place", "Maintain", "Evaluate", "Review", ...
   justification     String?
+  // "Dar de alta" — this person was placed on a real client account. When
+  // operationsProjectId is set, a matching ProjectAssignment is created so
+  // this shows up consistently everywhere else in the app (People,
+  // Ranking, Team rosters) — this flag never exists only here.
+  assignedToOperations   Boolean   @default(false)
+  assignedToOperationsAt DateTime?
+  operationsProjectId    String?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  operationsProject Project? @relation(fields: [operationsProjectId], references: [id])
 }
 
 model EmployeeNote {
@@ -810,6 +837,15 @@ model EmployeeProspect {
   status            ProspectStatus          @default(IDENTIFIED)
   interviewDate     DateTime?
   expectedStartDate DateTime?
+  // Whether the person actually showed up for `interviewDate`, and how it
+  // went. Separate from the overall `status`/`outcomeReason` below — an
+  // interview can go badly without the whole opportunity being over yet
+  // (another round, a different role), and a no-show has its own reason
+  // distinct from "why the opportunity ultimately failed."
+  interviewAttended            Boolean?
+  interviewResult              InterviewResult?
+  interviewNonAttendanceReason InterviewNonAttendanceReason?
+  interviewNonAttendanceNotes  String?
   outcomeReason     ProspectOutcomeReason?
   outcomeNotes      String?
   technicalFeedback String?

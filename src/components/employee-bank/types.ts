@@ -9,6 +9,12 @@ export interface ActiveProspectSummary {
   interviewDate: Date | null;
   createdAt: Date;
   generalNotes: string | null;
+  interviewAttended: boolean | null;
+  interviewResult: string | null;
+  interviewNonAttendanceReason: string | null;
+  interviewNonAttendanceNotes: string | null;
+  outcomeReason: string | null;
+  outcomeNotes: string | null;
 }
 
 export interface EmployeeBankRow {
@@ -28,6 +34,10 @@ export interface EmployeeBankRow {
   proposedSalary: number | null;
   action: string | null;
   justification: string | null;
+  assignedToOperations: boolean;
+  assignedToOperationsAt: Date | null;
+  operationsProjectId: string | null;
+  operationsProjectName: string | null;
   score: number;
   trend: string;
   trendDelta: number | null;

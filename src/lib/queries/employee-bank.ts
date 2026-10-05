@@ -7,7 +7,7 @@ import { suggestGroup, isActiveProspectStatus } from "@/lib/employee-bank/scorin
 import { averageScore, computeTrend, dedupeScoresByDemo, computeConfidence } from "@/lib/scoring";
 
 const employeeInclude = {
-  employeeBankProfile: true,
+  employeeBankProfile: { include: { operationsProject: true } },
   teamMemberships: { where: { leftAt: null }, include: { team: true } },
   projectAssignments: { where: { endDate: null }, include: { project: true } },
   evaluationsReceived: {
@@ -48,6 +48,25 @@ function summarize(user: EmployeeWithBankData, thresholds: { aMin: number; bMin:
   const activeProspects = user.prospects.filter((p) => isActiveProspectStatus(p.status));
   const historicalProspects = user.prospects.filter((p) => !isActiveProspectStatus(p.status));
 
+  const toProspectSummary = (p: (typeof user.prospects)[number]) => ({
+    id: p.id,
+    client: p.client,
+    projectName: p.project?.name ?? null,
+    teamName: p.team?.name ?? null,
+    role: p.role,
+    status: p.status,
+    ownerName: p.owner.name,
+    interviewDate: p.interviewDate,
+    createdAt: p.createdAt,
+    generalNotes: p.generalNotes,
+    interviewAttended: p.interviewAttended,
+    interviewResult: p.interviewResult,
+    interviewNonAttendanceReason: p.interviewNonAttendanceReason,
+    interviewNonAttendanceNotes: p.interviewNonAttendanceNotes,
+    outcomeReason: p.outcomeReason,
+    outcomeNotes: p.outcomeNotes,
+  });
+
   return {
     id: user.id,
     name: user.name,
@@ -65,23 +84,20 @@ function summarize(user: EmployeeWithBankData, thresholds: { aMin: number; bMin:
     proposedSalary: profile?.proposedSalary ?? null,
     action: profile?.action ?? null,
     justification: profile?.justification ?? null,
+    assignedToOperations: profile?.assignedToOperations ?? false,
+    assignedToOperationsAt: profile?.assignedToOperationsAt ?? null,
+    operationsProjectId: profile?.operationsProjectId ?? null,
+    operationsProjectName: profile?.operationsProject?.name ?? null,
     score,
     trend: trend.trend,
     trendDelta: trend.delta,
     evaluationCount: user.evaluationsReceived.length,
     confidence,
-    activeProspects: activeProspects.map((p) => ({
-      id: p.id,
-      client: p.client,
-      projectName: p.project?.name ?? null,
-      teamName: p.team?.name ?? null,
-      role: p.role,
-      status: p.status,
-      ownerName: p.owner.name,
-      interviewDate: p.interviewDate,
-      createdAt: p.createdAt,
-      generalNotes: p.generalNotes,
-    })),
+    activeProspects: activeProspects.map(toProspectSummary),
+    // Full detail (not just counts) so a manager can see what actually
+    // happened at each past opportunity — interview outcome, non-
+    // attendance reason, why it ultimately didn't materialize.
+    historicalProspects: historicalProspects.map(toProspectSummary),
     historicalProspectCount: historicalProspects.length,
     acceptedProspectCount: user.prospects.filter((p) => p.status === "ACCEPTED").length,
     rejectedProspectCount: user.prospects.filter((p) => ["REJECTED", "WITHDRAWN", "CANCELLED"].includes(p.status)).length,

@@ -6,6 +6,7 @@ import { getProspectDetail } from "@/lib/queries/employee-bank";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProspectStatusForm } from "@/components/employee-bank/prospect-status-form";
+import { InterviewOutcomeForm } from "@/components/employee-bank/interview-outcome-form";
 import { ProspectFeedbackForm, ProspectNoteForm } from "@/components/employee-bank/prospect-feedback-form";
 import { ActivityLog } from "@/components/shared/activity-log";
 import { enumLabel, statusTone } from "@/lib/employee-bank/labels";
@@ -72,6 +73,22 @@ export default async function ProspectDetailPage({ params }: { params: Promise<{
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Interview Outcome</CardTitle>
+          <CardDescription>Did they attend, and how did it go — separate from the overall opportunity outcome below.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <InterviewOutcomeForm
+            prospectId={prospect.id}
+            interviewAttended={prospect.interviewAttended}
+            interviewResult={prospect.interviewResult}
+            interviewNonAttendanceReason={prospect.interviewNonAttendanceReason}
+            interviewNonAttendanceNotes={prospect.interviewNonAttendanceNotes}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

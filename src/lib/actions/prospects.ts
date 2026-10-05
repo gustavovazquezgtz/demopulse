@@ -96,6 +96,56 @@ export async function updateProspectStatus(
   revalidatePath(`/people/${prospect.employeeId}`);
 }
 
+/**
+ * Records what actually happened at a specific scheduled interview —
+ * separate from the prospect's overall status/outcome. Either the person
+ * attended (and it went well or badly) or they didn't (and there's a
+ * reason why not, e.g. a scheduling conflict vs. declining outright).
+ */
+export async function updateInterviewOutcome(
+  prospectId: string,
+  input: { attended: boolean; result?: string; nonAttendanceReason?: string; nonAttendanceNotes?: string }
+) {
+  const session = await requireSession();
+
+  if (input.attended && !input.result) {
+    throw new Error("Select whether the interview went well or badly.");
+  }
+  if (!input.attended && !input.nonAttendanceReason) {
+    throw new Error("Select a reason the person didn't attend.");
+  }
+
+  const data = input.attended
+    ? {
+        interviewAttended: true,
+        interviewResult: input.result as never,
+        interviewNonAttendanceReason: null,
+        interviewNonAttendanceNotes: null,
+      }
+    : {
+        interviewAttended: false,
+        interviewResult: null,
+        interviewNonAttendanceReason: input.nonAttendanceReason as never,
+        interviewNonAttendanceNotes: input.nonAttendanceNotes?.trim() || null,
+      };
+
+  await prisma.employeeProspect.update({ where: { id: prospectId }, data });
+
+  await prisma.prospectActivity.create({
+    data: {
+      prospectId,
+      actorId: session.user.id,
+      action: "INTERVIEW_OUTCOME",
+      after: input.attended
+        ? { attended: true, result: input.result }
+        : { attended: false, reason: input.nonAttendanceReason, notes: input.nonAttendanceNotes ?? null },
+    },
+  });
+
+  revalidatePath("/employee-bank");
+  revalidatePath(`/employee-bank/prospects/${prospectId}`);
+}
+
 export async function addProspectNote(prospectId: string, text: string) {
   const session = await requireSession();
   if (!text.trim()) throw new Error("Note text is required.");

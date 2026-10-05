@@ -95,6 +95,57 @@ export async function addEmployeeNote(userId: string, type: string, text: string
   return note;
 }
 
+/**
+ * "Dar de alta" — marks the person as placed on a real client account.
+ * When a project is given, mirrors a real ProjectAssignment the same way
+ * addTeamMember does (first active assignment becomes primary) so this
+ * shows up consistently in People/Ranking/Team rosters, not just here.
+ * Also bumps availability to FULLY_ALLOCATED — being staffed on an
+ * account is, by definition, no longer "available."
+ */
+export async function assignToOperations(userId: string, projectId?: string) {
+  const session = await requireSession();
+  const now = new Date();
+
+  await prisma.employeeBankProfile.upsert({
+    where: { userId },
+    update: { assignedToOperations: true, assignedToOperationsAt: now, operationsProjectId: projectId || null, availability: "FULLY_ALLOCATED" },
+    create: { userId, assignedToOperations: true, assignedToOperationsAt: now, operationsProjectId: projectId || null, availability: "FULLY_ALLOCATED" },
+  });
+
+  if (projectId) {
+    const hasOtherActiveAssignment = await prisma.projectAssignment.findFirst({ where: { userId, endDate: null } });
+    await prisma.projectAssignment.upsert({
+      where: { projectId_userId: { projectId, userId } },
+      update: { endDate: null, isPrimary: !hasOtherActiveAssignment },
+      create: { projectId, userId, isPrimary: !hasOtherActiveAssignment },
+    });
+  }
+
+  await prisma.auditLog.create({
+    data: { userId: session.user.id, entityType: "User", entityId: userId, action: "ASSIGNED_TO_OPERATIONS", after: { projectId: projectId || null } },
+  });
+
+  revalidatePath("/employee-bank");
+  revalidatePath(`/people/${userId}`);
+}
+
+export async function unassignFromOperations(userId: string) {
+  const session = await requireSession();
+
+  await prisma.employeeBankProfile.update({
+    where: { userId },
+    data: { assignedToOperations: false, assignedToOperationsAt: null, operationsProjectId: null },
+  });
+
+  await prisma.auditLog.create({
+    data: { userId: session.user.id, entityType: "User", entityId: userId, action: "UNASSIGNED_FROM_OPERATIONS" },
+  });
+
+  revalidatePath("/employee-bank");
+  revalidatePath(`/people/${userId}`);
+}
+
 interface BulkPatch {
   group?: "A" | "B" | "C";
   groupOverrideNote?: string;

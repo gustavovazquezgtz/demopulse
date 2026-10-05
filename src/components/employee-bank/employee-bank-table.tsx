@@ -45,9 +45,10 @@ interface Filters {
   prospectStatus: string; // "" | PROSPECTED | NOT_PROSPECTED | <enum>
   availability: string;
   action: string;
+  operations: string; // "" | ASSIGNED | NOT_ASSIGNED
 }
 
-const EMPTY_FILTERS: Filters = { group: "", role: "", teamId: "", projectId: "", prospectStatus: "", availability: "", action: "" };
+const EMPTY_FILTERS: Filters = { group: "", role: "", teamId: "", projectId: "", prospectStatus: "", availability: "", action: "", operations: "" };
 
 export function EmployeeBankTable({
   rows,
@@ -87,6 +88,8 @@ export function EmployeeBankTable({
       if (filters.projectId && !r.projects.some((p) => p.id === filters.projectId)) return false;
       if (filters.availability && r.availability !== filters.availability) return false;
       if (filters.action && r.action !== filters.action) return false;
+      if (filters.operations === "ASSIGNED" && !r.assignedToOperations) return false;
+      if (filters.operations === "NOT_ASSIGNED" && r.assignedToOperations) return false;
       if (filters.prospectStatus) {
         if (filters.prospectStatus === "PROSPECTED" && r.activeProspects.length === 0) return false;
         if (filters.prospectStatus === "NOT_PROSPECTED" && r.activeProspects.length > 0) return false;
@@ -209,6 +212,20 @@ export function EmployeeBankTable({
         header: "Action",
         size: 110,
         cell: (c) => <InlineEditText userId={c.row.original.id} field="action" value={c.getValue()} placeholder="—" />,
+      }),
+      columnHelper.display({
+        id: "operations",
+        header: "Operations",
+        size: 170,
+        cell: ({ row }) => {
+          const r = row.original;
+          if (!r.assignedToOperations) return <span className="text-xs text-muted-foreground">—</span>;
+          return (
+            <Badge variant="positive" className="text-[10px]">
+              {r.operationsProjectName ? `Ops: ${r.operationsProjectName}` : "Assigned to Operations"}
+            </Badge>
+          );
+        },
       }),
       columnHelper.display({
         id: "notes",
@@ -353,6 +370,15 @@ export function EmployeeBankTable({
             </SelectContent>
           </Select>
         )}
+
+        <Select value={filters.operations || "ALL"} onValueChange={(v) => setFilters((f) => ({ ...f, operations: v === "ALL" ? "" : v }))}>
+          <SelectTrigger className="w-40 text-xs"><SelectValue placeholder="Operations" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">Any Operations Status</SelectItem>
+            <SelectItem value="ASSIGNED">Assigned to Operations</SelectItem>
+            <SelectItem value="NOT_ASSIGNED">Not Assigned</SelectItem>
+          </SelectContent>
+        </Select>
 
         {(search || Object.values(filters).some(Boolean)) && (
           <Button size="sm" variant="ghost" onClick={() => { setSearch(""); setFilters(EMPTY_FILTERS); }}>Clear</Button>
