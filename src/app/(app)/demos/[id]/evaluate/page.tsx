@@ -44,10 +44,15 @@ export default async function EvaluateDemoPage({ params }: { params: Promise<{ i
           teams: data.teamByDeveloper.get(d.id) ?? [],
           attendanceStatus: d.attendanceStatus,
           completed: existing?.status === "COMPLETED",
+          // 1 = legacy yes/no criteria, 2 = new 1-5 scale with dynamic
+          // weights — fixed per developer+demo once an evaluation exists,
+          // so resuming an old in-progress evaluation never switches rubric.
+          scoringVersion: data.scoringVersionByDeveloper.get(d.id) ?? 2,
           overallComment: existing?.overallComment ?? "",
           strengths: existing?.strengths ?? "",
           areasForImprovement: existing?.areasForImprovement ?? "",
           answers: Object.fromEntries((existing?.answers ?? []).map((a) => [a.criterionId, a.answer])),
+          scaleAnswers: Object.fromEntries((existing?.answers ?? []).filter((a) => a.scaleValue !== null).map((a) => [a.criterionId, a.scaleValue as number])),
           comments: Object.fromEntries((existing?.answers ?? []).map((a) => [a.criterionId, a.comment ?? ""])),
         };
       })}

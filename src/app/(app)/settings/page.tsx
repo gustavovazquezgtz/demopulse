@@ -1,7 +1,10 @@
 import { requireSession } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getGroupThresholds } from "@/lib/queries/app-settings";
+import { getMethodologyCutoffDate } from "@/lib/evaluation-methodology";
 import { GroupThresholdsForm } from "@/components/employee-bank/group-thresholds-form";
+import { CriterionWeightSlider } from "@/components/settings/criterion-weight-slider";
+import { MethodologyCutoffForm } from "@/components/settings/methodology-cutoff-form";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,12 +13,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 export default async function SettingsPage() {
   await requireSession();
 
-  const [criteria, users, teams, projects, groupThresholds] = await Promise.all([
+  const [criteria, users, teams, projects, groupThresholds, methodologyCutoff] = await Promise.all([
     prisma.evaluationCriterion.findMany({ orderBy: { order: "asc" } }),
     prisma.user.findMany({ orderBy: { name: "asc" } }),
     prisma.team.count(),
     prisma.project.count(),
     getGroupThresholds(),
+    getMethodologyCutoffDate(),
   ]);
 
   const aiProvider = process.env.OPENAI_API_KEY ? "OpenAI (configured)" : "Rule-based (default, no API key configured)";
@@ -37,38 +41,55 @@ export default async function SettingsPage() {
         </TabsList>
 
         <TabsContent value="criteria">
-          <Card>
-            <CardHeader>
-              <CardTitle>Official Evaluation Questions</CardTitle>
-              <CardDescription>
-                Stored as configurable criteria (EvaluationCriterion table) — not hardcoded. New criteria can be added without a schema change.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>#</TableHead>
-                    <TableHead>Question</TableHead>
-                    <TableHead>Dimension</TableHead>
-                    <TableHead>Weight</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {criteria.map((c) => (
-                    <TableRow key={c.id}>
-                      <TableCell className="text-xs text-muted-foreground">{c.order}</TableCell>
-                      <TableCell className="max-w-md text-sm text-foreground">{c.text}</TableCell>
-                      <TableCell><Badge variant="secondary">{c.dimension}</Badge></TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{c.weight}</TableCell>
-                      <TableCell><Badge variant={c.active ? "positive" : "outline"}>{c.active ? "Active" : "Inactive"}</Badge></TableCell>
+          <div className="flex flex-col gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Scoring Methodology</CardTitle>
+                <CardDescription>
+                  Evaluations through the cutoff date keep their original yes/no scoring forever — changing weights or the cutoff
+                  never recalculates a past score. From the day after the cutoff, every new evaluation uses a 1-5 scale per
+                  criterion, weighted by the sliders below.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <MethodologyCutoffForm cutoffDate={methodologyCutoff} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Official Evaluation Questions</CardTitle>
+                <CardDescription>
+                  Stored as configurable criteria (EvaluationCriterion table) — not hardcoded. Drag a weight slider to change how
+                  much that criterion counts in new evaluations, relative to the others.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>#</TableHead>
+                      <TableHead>Question</TableHead>
+                      <TableHead>Dimension</TableHead>
+                      <TableHead>Weight</TableHead>
+                      <TableHead>Status</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+                  </TableHeader>
+                  <TableBody>
+                    {criteria.map((c) => (
+                      <TableRow key={c.id}>
+                        <TableCell className="text-xs text-muted-foreground">{c.order}</TableCell>
+                        <TableCell className="max-w-md text-sm text-foreground">{c.text}</TableCell>
+                        <TableCell><Badge variant="secondary">{c.dimension}</Badge></TableCell>
+                        <TableCell><CriterionWeightSlider criterionId={c.id} weight={c.weight} /></TableCell>
+                        <TableCell><Badge variant={c.active ? "positive" : "outline"}>{c.active ? "Active" : "Inactive"}</Badge></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="users">

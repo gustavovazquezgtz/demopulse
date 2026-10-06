@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeEvaluationScore, computeTrend, computeConfidence, computeAgreement, averageScore, dedupeScoresByDemo } from "@/lib/scoring";
+import { computeEvaluationScore, computeScaleEvaluationScore, computeTrend, computeConfidence, computeAgreement, averageScore, dedupeScoresByDemo } from "@/lib/scoring";
 
 describe("computeEvaluationScore", () => {
   it("computes (yes / total) * 100 for equal weights", () => {
@@ -36,6 +36,45 @@ describe("computeEvaluationScore", () => {
     ];
     // 3 / 4 = 75
     expect(computeEvaluationScore(answers)).toBe(75);
+  });
+});
+
+// New (scoringVersion 2) formula: 1-5 scale, dynamic per-criterion
+// weights. computeEvaluationScore (legacy) is deliberately untouched by
+// any of this — frozen behavior for frozen historical scores.
+describe("computeScaleEvaluationScore", () => {
+  it("maps a rating of 5 to 100% and 1 to 20% (1-of-5-stars convention, not 0%)", () => {
+    expect(computeScaleEvaluationScore([{ criterionCode: "a", scaleValue: 5, weight: 1 }])).toBe(100);
+    expect(computeScaleEvaluationScore([{ criterionCode: "a", scaleValue: 1, weight: 1 }])).toBe(20);
+    expect(computeScaleEvaluationScore([{ criterionCode: "a", scaleValue: 3, weight: 1 }])).toBe(60);
+  });
+
+  it("averages across criteria with equal weight", () => {
+    const answers = [
+      { criterionCode: "a", scaleValue: 5, weight: 1 },
+      { criterionCode: "b", scaleValue: 1, weight: 1 },
+    ];
+    expect(computeScaleEvaluationScore(answers)).toBe(60); // (100 + 20) / 2
+  });
+
+  it("a dynamically-raised weight pulls the score toward that criterion", () => {
+    const answers = [
+      { criterionCode: "heavy", scaleValue: 5, weight: 4 }, // 100%, weight 4
+      { criterionCode: "light", scaleValue: 1, weight: 1 }, // 20%, weight 1
+    ];
+    // (100*4 + 20*1) / 5 = 84
+    expect(computeScaleEvaluationScore(answers)).toBeCloseTo(84, 5);
+  });
+
+  it("returns 0 for an empty answer set instead of dividing by zero", () => {
+    expect(computeScaleEvaluationScore([])).toBe(0);
+  });
+
+  it("never shares behavior with the legacy formula — same inputs, different rubric", () => {
+    const legacy = computeEvaluationScore([{ criterionCode: "a", answer: true, weight: 1 }]);
+    const scale = computeScaleEvaluationScore([{ criterionCode: "a", scaleValue: 3, weight: 1 }]);
+    expect(legacy).toBe(100); // yes = full credit
+    expect(scale).toBe(60); // a middling 3/5 is not full credit
   });
 });
 

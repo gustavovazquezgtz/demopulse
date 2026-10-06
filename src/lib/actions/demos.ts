@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireSession, canEvaluate, isCeo } from "@/lib/permissions";
 import { createDemoSchema, type CreateDemoInput } from "@/lib/validations/demo";
-import { computeEvaluationScore } from "@/lib/scoring";
+import { computeEvaluationScore, computeScaleEvaluationScore } from "@/lib/scoring";
+import { isPastMethodologyCutoff } from "@/lib/evaluation-methodology";
 import { AIInsightService } from "@/lib/ai/services";
 import { AITeamSummaryService } from "@/lib/ai/team-org-insights";
 
@@ -448,7 +449,10 @@ export async function recordAttendance(demoId: string, records: { userId: string
 
 export interface EvaluationDraft {
   developerId: string;
-  answers: { criterionId: string; answer: boolean; comment?: string }[];
+  // Legacy (scoringVersion 1) answers carry `answer`; new (scoringVersion
+  // 2) answers carry `scaleValue` (1-5). Which one the client sends is
+  // decided once per evaluation by getDemoForEvaluation, not per-request.
+  answers: { criterionId: string; answer?: boolean; scaleValue?: number; comment?: string }[];
   overallComment?: string;
   strengths?: string;
   areasForImprovement?: string;
@@ -470,7 +474,7 @@ export async function saveEvaluation(demoId: string, draft: EvaluationDraft) {
 
   const existing = await prisma.evaluation.findUnique({
     where: { demoId_developerId_evaluatorId: { demoId, developerId: draft.developerId, evaluatorId } },
-    select: { status: true },
+    select: { status: true, scoringVersion: true },
   });
 
   // Once an evaluation has been completed, editing one answer must not
@@ -481,8 +485,27 @@ export async function saveEvaluation(demoId: string, draft: EvaluationDraft) {
   const wasCompleted = existing?.status === "COMPLETED";
   const finalize = draft.complete || wasCompleted;
 
+  // Set once, on first save, and never re-derived afterward — editing an
+  // evaluation later must keep scoring it under whichever rubric it was
+  // originally created with, not whatever's "current" at edit time.
+  const scoringVersion = existing ? existing.scoringVersion : (await isPastMethodologyCutoff()) ? 2 : 1;
+
+  const weightByCriterionId = new Map(
+    (await prisma.evaluationCriterion.findMany({ select: { id: true, weight: true } })).map((c) => [c.id, c.weight])
+  );
+
   const score = finalize
-    ? computeEvaluationScore(draft.answers.map((a) => ({ criterionCode: a.criterionId, answer: a.answer, weight: 1 })))
+    ? scoringVersion === 2
+      ? computeScaleEvaluationScore(
+          draft.answers
+            .filter((a) => a.scaleValue !== undefined)
+            .map((a) => ({ criterionCode: a.criterionId, scaleValue: a.scaleValue!, weight: weightByCriterionId.get(a.criterionId) ?? 1 }))
+        )
+      : computeEvaluationScore(
+          draft.answers
+            .filter((a) => a.answer !== undefined)
+            .map((a) => ({ criterionCode: a.criterionId, answer: a.answer!, weight: weightByCriterionId.get(a.criterionId) ?? 1 }))
+        )
     : null;
 
   const evaluation = await prisma.evaluation.upsert({
@@ -505,14 +528,20 @@ export async function saveEvaluation(demoId: string, draft: EvaluationDraft) {
       strengths: draft.strengths,
       areasForImprovement: draft.areasForImprovement,
       score,
+      scoringVersion,
     },
   });
 
   for (const a of draft.answers) {
+    // New-style answers derive a boolean too (scaleValue >= 3 = positive)
+    // so every existing "% positive" dimension chart and AI reader keeps
+    // working unchanged — the real new score comes from scaleValue above,
+    // never from this derived flag.
+    const answer = a.scaleValue !== undefined ? a.scaleValue >= 3 : a.answer!;
     await prisma.evaluationAnswer.upsert({
       where: { evaluationId_criterionId: { evaluationId: evaluation.id, criterionId: a.criterionId } },
-      update: { answer: a.answer, comment: a.comment },
-      create: { evaluationId: evaluation.id, criterionId: a.criterionId, answer: a.answer, comment: a.comment },
+      update: { answer, scaleValue: a.scaleValue ?? null, comment: a.comment },
+      create: { evaluationId: evaluation.id, criterionId: a.criterionId, answer, scaleValue: a.scaleValue ?? null, comment: a.comment },
     });
   }
 

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Scope } from "./dashboard";
 import { averageScore, computeAgreement, computeConfidence } from "@/lib/scoring";
+import { isPastMethodologyCutoff } from "@/lib/evaluation-methodology";
 import { sortRows } from "@/lib/sort";
 
 export async function listDemos(scope: Scope, opts: { status?: string; sort?: string; dir?: string } = {}) {
@@ -120,6 +121,15 @@ export async function getDemoForEvaluation(demoId: string, evaluatorId: string) 
   });
   const existingByDeveloper = new Map(existing.map((e) => [e.developerId, e]));
 
+  // Which rubric applies to each developer's evaluation on THIS demo: if
+  // one already exists (even unfinished), its own scoringVersion is kept
+  // forever — otherwise a brand-new evaluation gets whatever rubric is
+  // currently in effect (1-5 scale from the methodology cutoff onward).
+  const defaultScoringVersion = (await isPastMethodologyCutoff()) ? 2 : 1;
+  const scoringVersionByDeveloper = new Map(
+    developers.map((d) => [d.id, existingByDeveloper.get(d.id)?.scoringVersion ?? defaultScoringVersion])
+  );
+
   return {
     demo,
     developers,
@@ -127,6 +137,7 @@ export async function getDemoForEvaluation(demoId: string, evaluatorId: string) 
     teamByDeveloper,
     criteria,
     existingByDeveloper,
+    scoringVersionByDeveloper,
     canEvaluate: evaluatorInvited && evaluatorAttended,
   };
 }

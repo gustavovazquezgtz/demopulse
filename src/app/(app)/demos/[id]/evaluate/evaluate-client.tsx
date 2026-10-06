@@ -32,12 +32,16 @@ interface DeveloperState {
   teams: TeamRef[];
   attendanceStatus: "PRESENT" | "ABSENT" | "EXCUSED" | null;
   completed: boolean;
+  scoringVersion: number; // 1 = legacy yes/no, 2 = new 1-5 scale
   overallComment: string;
   strengths: string;
   areasForImprovement: string;
   answers: Record<string, boolean>;
+  scaleAnswers: Record<string, number>;
   comments: Record<string, string>;
 }
+
+const SCALE_LABELS: Record<number, string> = { 1: "Poor", 2: "Fair", 3: "Good", 4: "Very Good", 5: "Excellent" };
 
 export function EvaluateClient({
   demoId,
@@ -60,7 +64,10 @@ export function EvaluateClient({
 
   const current = developers[index];
   const completedCount = developers.filter((d) => d.completed).length;
-  const allAnswered = criteria.every((c) => current.answers[c.id] !== undefined);
+  const isScaleMode = current.scoringVersion === 2;
+  const allAnswered = isScaleMode
+    ? criteria.every((c) => current.scaleAnswers[c.id] !== undefined)
+    : criteria.every((c) => current.answers[c.id] !== undefined);
 
   const visibleDevelopers = teamFilter === "ALL" ? developers : developers.filter((d) => d.teams.some((t) => t.id === teamFilter));
 
@@ -85,12 +92,17 @@ export function EvaluateClient({
 
   async function doSave(complete: boolean) {
     const dev = developers[index];
+    const devIsScaleMode = dev.scoringVersion === 2;
     try {
       await saveEvaluation(demoId, {
         developerId: dev.id,
-        answers: criteria
-          .filter((c) => dev.answers[c.id] !== undefined)
-          .map((c) => ({ criterionId: c.id, answer: dev.answers[c.id], comment: dev.comments[c.id] || undefined })),
+        answers: devIsScaleMode
+          ? criteria
+              .filter((c) => dev.scaleAnswers[c.id] !== undefined)
+              .map((c) => ({ criterionId: c.id, scaleValue: dev.scaleAnswers[c.id], comment: dev.comments[c.id] || undefined }))
+          : criteria
+              .filter((c) => dev.answers[c.id] !== undefined)
+              .map((c) => ({ criterionId: c.id, answer: dev.answers[c.id], comment: dev.comments[c.id] || undefined })),
         overallComment: dev.overallComment || undefined,
         strengths: dev.strengths || undefined,
         areasForImprovement: dev.areasForImprovement || undefined,
@@ -189,6 +201,7 @@ export function EvaluateClient({
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <CardTitle>{current.name}</CardTitle>
+              <Badge variant="outline" className="text-[10px]">{isScaleMode ? "1-5 Scale" : "Yes/No (legacy)"}</Badge>
               {current.attendanceStatus && current.attendanceStatus !== "PRESENT" && (
                 <Badge variant="warning" className="text-[10px]">
                   Marked {current.attendanceStatus.charAt(0) + current.attendanceStatus.slice(1).toLowerCase()} — still evaluable
@@ -212,34 +225,61 @@ export function EvaluateClient({
             <div key={c.id} className="border-b border-border pb-4 last:border-0 last:pb-0">
               <p className="text-sm font-medium text-foreground">{c.text}</p>
               <p className="mb-2 text-xs text-muted-foreground">{c.dimension}</p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    updateCurrent({ answers: { ...current.answers, [c.id]: true } });
-                    scheduleAutosave();
-                  }}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-                    current.answers[c.id] === true ? "border-positive bg-positive-muted text-positive" : "border-border text-muted-foreground hover:bg-surface-muted"
-                  )}
-                >
-                  <Check className="h-3.5 w-3.5" /> Yes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    updateCurrent({ answers: { ...current.answers, [c.id]: false } });
-                    scheduleAutosave();
-                  }}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-                    current.answers[c.id] === false ? "border-critical bg-critical-muted text-critical" : "border-border text-muted-foreground hover:bg-surface-muted"
-                  )}
-                >
-                  <X className="h-3.5 w-3.5" /> No
-                </button>
-              </div>
+              {isScaleMode ? (
+                <div className="flex gap-1.5">
+                  {[1, 2, 3, 4, 5].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      title={SCALE_LABELS[v]}
+                      onClick={() => {
+                        updateCurrent({ scaleAnswers: { ...current.scaleAnswers, [c.id]: v } });
+                        scheduleAutosave();
+                      }}
+                      className={cn(
+                        "flex h-10 w-10 flex-col items-center justify-center rounded-md border text-sm font-semibold transition-colors",
+                        current.scaleAnswers[c.id] === v
+                          ? "border-primary bg-primary-muted text-primary"
+                          : "border-border text-muted-foreground hover:bg-surface-muted"
+                      )}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                  <span className="ml-2 self-center text-xs text-muted-foreground">
+                    {current.scaleAnswers[c.id] ? SCALE_LABELS[current.scaleAnswers[c.id]] : "1 = Poor, 5 = Excellent"}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateCurrent({ answers: { ...current.answers, [c.id]: true } });
+                      scheduleAutosave();
+                    }}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                      current.answers[c.id] === true ? "border-positive bg-positive-muted text-positive" : "border-border text-muted-foreground hover:bg-surface-muted"
+                    )}
+                  >
+                    <Check className="h-3.5 w-3.5" /> Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateCurrent({ answers: { ...current.answers, [c.id]: false } });
+                      scheduleAutosave();
+                    }}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                      current.answers[c.id] === false ? "border-critical bg-critical-muted text-critical" : "border-border text-muted-foreground hover:bg-surface-muted"
+                    )}
+                  >
+                    <X className="h-3.5 w-3.5" /> No
+                  </button>
+                </div>
+              )}
               <Textarea
                 className="mt-2"
                 rows={1}

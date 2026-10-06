@@ -4,12 +4,41 @@
 
 export type YesNoAnswer = { criterionCode: string; answer: boolean; weight: number };
 
-/** Official score = (weighted YES / total weight) * 100. Section 15/37. */
+/**
+ * Official score = (weighted YES / total weight) * 100. Section 15/37.
+ *
+ * LEGACY FORMULA — frozen. This is scoringVersion 1, used only for
+ * evaluations saved before the methodology cutoff (see
+ * lib/evaluation-methodology.ts). Never change this function's behavior;
+ * every historical Evaluation.score was computed once with it and cached,
+ * so changing it wouldn't even retroactively affect old scores — but it
+ * would make "legacy" and "new" diverge from what each is documented to
+ * mean. Add new scoring behavior to computeScaleEvaluationScore instead.
+ */
 export function computeEvaluationScore(answers: YesNoAnswer[]): number {
   if (answers.length === 0) return 0;
   const totalWeight = answers.reduce((sum, a) => sum + a.weight, 0);
   if (totalWeight === 0) return 0;
   const earned = answers.reduce((sum, a) => sum + (a.answer ? a.weight : 0), 0);
+  return (earned / totalWeight) * 100;
+}
+
+export type ScaleAnswer = { criterionCode: string; scaleValue: number; weight: number }; // scaleValue is 1-5
+
+/**
+ * NEW FORMULA — scoringVersion 2, used from the methodology cutoff date
+ * onward. Each criterion is rated 1-5 instead of yes/no, and each
+ * criterion's weight is manager-configurable (EvaluationCriterion.weight,
+ * edited via a slider in Settings) instead of implicitly 1. A rating of 1
+ * maps to 20%, 5 to 100% — the same "1 of 5 stars" convention most people
+ * already read a 1-5 scale as, not a 0-100% stretch that would make even
+ * the lowest possible rating look like a near-total failure.
+ */
+export function computeScaleEvaluationScore(answers: ScaleAnswer[]): number {
+  if (answers.length === 0) return 0;
+  const totalWeight = answers.reduce((sum, a) => sum + a.weight, 0);
+  if (totalWeight === 0) return 0;
+  const earned = answers.reduce((sum, a) => sum + (a.scaleValue / 5) * a.weight, 0);
   return (earned / totalWeight) * 100;
 }
 

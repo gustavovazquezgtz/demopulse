@@ -3,7 +3,7 @@ import { requireSession } from "@/lib/permissions";
 import { UNSCOPED, getOrgStats } from "@/lib/queries/dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileBarChart, Users, UsersRound, Video, Building2 } from "lucide-react";
+import { FileBarChart, Users, UsersRound, Video, Building2, History } from "lucide-react";
 
 export default async function ReportsPage() {
   await requireSession();
@@ -14,6 +14,7 @@ export default async function ReportsPage() {
     { title: "Team / Project Report", description: "Team score, coverage, attendance, deliverables, and dimension trends.", icon: UsersRound, href: "/teams" },
     { title: "Demo Report", description: "Per-demo results, consensus, and AI highlights.", icon: Video, href: "/demos" },
     { title: "Organization Report", description: "Organization-wide performance, ranking, and question analysis.", icon: Building2, href: "/dashboard" },
+    { title: "Score Cutoff Report", description: "Everyone's frozen score under the old criteria, right before the 1-5 scale methodology took over.", icon: History, href: "/reports/score-cutoff" },
   ];
 
   return (

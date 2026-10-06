@@ -270,6 +270,8 @@ model User {
   oneOnOnesAsDeveloper OneOnOneSession[] @relation("OneOnOneDeveloper")
   oneOnOneNotesWritten OneOnOneNote[]
 
+  scoreCutoff EngineerScoreCutoff?
+
   @@index([role])
   @@index([active])
 }
@@ -625,7 +627,13 @@ model Evaluation {
   overallComment      String?
   strengths           String?
   areasForImprovement String?
-  score               Float? // (yes / totalWeight) * 100, cached on completion
+  score               Float? // cached on completion — formula depends on scoringVersion, never recomputed retroactively
+  // 1 = legacy yes/no criteria (pre-cutoff). 2 = 1-5 scale with dynamic
+  // per-criterion weights (from the methodology cutoff date onward). Set
+  // once when the evaluation is first created and never changed — editing
+  // an old evaluation later must keep scoring it the way it always was,
+  // never silently reinterpreted under the new rubric.
+  scoringVersion      Int              @default(1)
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 
@@ -649,7 +657,14 @@ model EvaluationAnswer {
   id           String  @id @default(cuid())
   evaluationId String
   criterionId  String
+  // Legacy (scoringVersion 1): the real yes/no answer. New (scoringVersion
+  // 2): derived as scaleValue >= 3 so every existing "% positive" chart
+  // and AI-insight reader keeps working unchanged — the REAL new score
+  // comes from scaleValue + the criterion's weight, not from this flag.
   answer       Boolean
+  // 1-5 rating, populated only for scoringVersion-2 answers. Null for
+  // every legacy answer — never backfilled, never reinterpreted.
+  scaleValue   Int?
   comment      String?
 
   evaluation Evaluation          @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
@@ -977,4 +992,25 @@ model OneOnOneNote {
   author  User             @relation(fields: [authorId], references: [id])
 
   @@index([sessionId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Evaluation methodology cutoff
+// ─────────────────────────────────────────────────────────────────────────
+
+// A permanent, one-time snapshot of each developer's score right before
+// the evaluation methodology changed (yes/no criteria -> 1-5 scale with
+// dynamic weights). Never recalculated, never touched by anything that
+// happens afterward — it exists purely so "what was X's score under the
+// old system" stays answerable forever, independent of whatever the live
+// Score becomes as new-methodology evaluations accumulate.
+model EngineerScoreCutoff {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  cutoffDate       DateTime // the last day counted under the old methodology
+  legacyScore      Float // averageScore over every evaluation through cutoffDate
+  evaluationCount  Int
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

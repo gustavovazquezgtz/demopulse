@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireSession } from "@/lib/permissions";
 import { getPersonProfile } from "@/lib/queries/people";
 import { getOneOnOnesForPerson } from "@/lib/queries/one-on-ones";
+import { getScoreCutoff } from "@/lib/queries/score-cutoff";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -21,11 +22,12 @@ import { initials, formatScore } from "@/lib/utils";
 export default async function PersonProfilePage({ params }: { params: Promise<{ id: string }> }) {
   await requireSession();
   const { id } = await params;
-  const [data, oneOnOnes] = await Promise.all([getPersonProfile(id), getOneOnOnesForPerson(id)]);
+  const [data, oneOnOnes, scoreCutoff] = await Promise.all([getPersonProfile(id), getOneOnOnesForPerson(id), getScoreCutoff(id)]);
   if (!data) notFound();
 
   const { person, evaluations, scoresByTeam, score, trend, confidence, attendance, avgParticipation, managerOpinions, insights, alerts, recognitions, dims, allTeams, activity, managedTeamIds, managerHistory, membershipHistory } = data;
   const isManager = person.role === "MANAGER" || person.role === "CEO";
+  const newMethodologyCount = evaluations.filter((e) => e.scoringVersion === 2).length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -85,6 +87,20 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
                 <CardTitle>Snapshot</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3 text-sm">
+                {scoreCutoff && (
+                  <Row
+                    label={`Score through ${scoreCutoff.cutoffDate.toLocaleDateString()} (frozen)`}
+                    custom={
+                      <div className="flex items-center gap-1.5">
+                        <ScoreBadge score={scoreCutoff.legacyScore} />
+                        <span className="text-xs text-muted-foreground">{scoreCutoff.evaluationCount} evals</span>
+                      </div>
+                    }
+                  />
+                )}
+                {newMethodologyCount > 0 && (
+                  <Row label="New-methodology evaluations (1-5 scale)" value={String(newMethodologyCount)} />
+                )}
                 <Row label="Attendance Rate" value={`${Math.round(attendance.rate)}%`} />
                 <Row label="Demos Attended" value={String(attendance.total)} />
                 <Row label="Avg. Participation (unofficial)" value={avgParticipation ? formatScore(avgParticipation * 20) : "—"} />
@@ -209,6 +225,7 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
                         <div className="flex items-center gap-1.5">
                           <p className="text-sm font-medium text-foreground">{e.demo.title}</p>
                           {e.team && <Badge variant="secondary" className="text-[10px]">{e.team.name}</Badge>}
+                          {e.scoringVersion === 2 && <Badge variant="outline" className="text-[10px]">1-5 Scale</Badge>}
                         </div>
                         <p className="text-xs text-muted-foreground">
                           {e.demo.date.toLocaleDateString()} · evaluated by {e.evaluator.name}
