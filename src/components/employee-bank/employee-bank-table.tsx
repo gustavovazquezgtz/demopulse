@@ -17,6 +17,7 @@ import { ChevronDown, ChevronUp, ChevronsUpDown, Settings2, Save, Bookmark, Tras
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TeamBadge } from "@/components/shared/team-badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -34,7 +35,7 @@ import { CurrencyCell, InlineEditText, QuickNoteCell, GroupCell } from "./cells"
 import { EmployeeDrawer } from "./employee-drawer";
 import { createSavedView, deleteSavedView } from "@/lib/actions/prospects";
 import { bulkUpdateEmployeeBank } from "@/lib/actions/employee-bank";
-import { enumLabel } from "@/lib/employee-bank/labels";
+import { enumLabel, OFFBOARDING_STATUS_OPTIONS, offboardingStatusLabel } from "@/lib/employee-bank/labels";
 import type { EmployeeBankRow } from "./types";
 
 interface Filters {
@@ -46,9 +47,12 @@ interface Filters {
   availability: string;
   action: string;
   operations: string; // "" | ASSIGNED | NOT_ASSIGNED
+  offboardingStatus: string; // "" | ACTIVE | <OffboardingStatus enum>
 }
 
-const EMPTY_FILTERS: Filters = { group: "", role: "", teamId: "", projectId: "", prospectStatus: "", availability: "", action: "", operations: "" };
+const EMPTY_FILTERS: Filters = {
+  group: "", role: "", teamId: "", projectId: "", prospectStatus: "", availability: "", action: "", operations: "", offboardingStatus: "",
+};
 
 export function EmployeeBankTable({
   rows,
@@ -90,6 +94,8 @@ export function EmployeeBankTable({
       if (filters.action && r.action !== filters.action) return false;
       if (filters.operations === "ASSIGNED" && !r.assignedToOperations) return false;
       if (filters.operations === "NOT_ASSIGNED" && r.assignedToOperations) return false;
+      if (filters.offboardingStatus === "ACTIVE" && r.offboardingStatus) return false;
+      if (filters.offboardingStatus && filters.offboardingStatus !== "ACTIVE" && r.offboardingStatus !== filters.offboardingStatus) return false;
       if (filters.prospectStatus) {
         if (filters.prospectStatus === "PROSPECTED" && r.activeProspects.length === 0) return false;
         if (filters.prospectStatus === "NOT_PROSPECTED" && r.activeProspects.length > 0) return false;
@@ -148,7 +154,7 @@ export function EmployeeBankTable({
         enableSorting: false,
         cell: (c) => (
           <div className="flex flex-wrap gap-1">
-            {c.getValue().length === 0 ? <span className="text-xs text-muted-foreground">—</span> : c.getValue().map((t) => <Badge key={t.id} variant="outline" className="text-[10px]">{t.name}</Badge>)}
+            {c.getValue().length === 0 ? <span className="text-xs text-muted-foreground">—</span> : c.getValue().map((t) => <TeamBadge key={t.id} name={t.name} className="text-[10px]" />)}
           </div>
         ),
       }),
@@ -225,6 +231,16 @@ export function EmployeeBankTable({
               {r.operationsProjectName ? `Ops: ${r.operationsProjectName}` : "Assigned to Operations"}
             </Badge>
           );
+        },
+      }),
+      columnHelper.display({
+        id: "offboardingStatus",
+        header: "Status",
+        size: 190,
+        cell: ({ row }) => {
+          const s = row.original.offboardingStatus;
+          if (!s) return <span className="text-xs text-muted-foreground">—</span>;
+          return <Badge variant="critical" className="text-[10px]">{offboardingStatusLabel(s)}</Badge>;
         },
       }),
       columnHelper.display({
@@ -377,6 +393,15 @@ export function EmployeeBankTable({
             <SelectItem value="ALL">Any Operations Status</SelectItem>
             <SelectItem value="ASSIGNED">Assigned to Operations</SelectItem>
             <SelectItem value="NOT_ASSIGNED">Not Assigned</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={filters.offboardingStatus || "ALL"} onValueChange={(v) => setFilters((f) => ({ ...f, offboardingStatus: v === "ALL" ? "" : v }))}>
+          <SelectTrigger className="w-44 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">Any Status</SelectItem>
+            <SelectItem value="ACTIVE">Active (not on Baja)</SelectItem>
+            {OFFBOARDING_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s}>{offboardingStatusLabel(s)}</SelectItem>)}
           </SelectContent>
         </Select>
 

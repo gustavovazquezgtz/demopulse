@@ -87,6 +87,8 @@ function summarize(user: EmployeeWithBankData, thresholds: { aMin: number; bMin:
     assignedToOperations: profile?.assignedToOperations ?? false,
     assignedToOperationsAt: profile?.assignedToOperationsAt ?? null,
     operationsProjectId: profile?.operationsProjectId ?? null,
+    offboardingStatus: profile?.offboardingStatus ?? null,
+    offboardingSetAt: profile?.offboardingSetAt ?? null,
     operationsProjectName: profile?.operationsProject?.name ?? null,
     score,
     trend: trend.trend,

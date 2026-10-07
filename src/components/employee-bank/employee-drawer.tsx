@@ -10,6 +10,8 @@ import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
 import { GroupBadge } from "./group-badge";
 import { CreateProspectDialog } from "./create-prospect-dialog";
 import { AssignOperationsForm } from "./assign-operations-form";
+import { OffboardingStatusForm } from "./offboarding-status-form";
+import { TeamBadge } from "@/components/shared/team-badge";
 import { fetchEmployeeBankProfile } from "@/lib/actions/employee-bank";
 import { enumLabel, statusTone, interviewResultTone } from "@/lib/employee-bank/labels";
 
@@ -86,7 +88,7 @@ export function EmployeeDrawer({
                   <Row label="Current Team" custom={
                     <div className="flex flex-wrap justify-end gap-1">
                       {profile.teams.length === 0 ? <span className="text-muted-foreground">—</span> : profile.teams.map((t) => (
-                        <Link key={t.id} href={`/teams/${t.id}`}><Badge variant="outline">{t.name}</Badge></Link>
+                        <Link key={t.id} href={`/teams/${t.id}`}><TeamBadge name={t.name} /></Link>
                       ))}
                     </div>
                   } />
@@ -110,6 +112,15 @@ export function EmployeeDrawer({
                       assignedToOperationsAt={profile.assignedToOperationsAt}
                       operationsProjectName={profile.operationsProjectName}
                       allProjects={profile.allProjects}
+                    />
+                  </div>
+
+                  <div className="mt-2 border-t border-border pt-3">
+                    <p className="mb-2 text-xs font-semibold text-muted-foreground">Offboarding</p>
+                    <OffboardingStatusForm
+                      userId={profile.id}
+                      offboardingStatus={profile.offboardingStatus}
+                      offboardingSetAt={profile.offboardingSetAt}
                     />
                   </div>
 

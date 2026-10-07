@@ -14,6 +14,7 @@ import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
 import { PersonTeamsPanel } from "@/components/people/person-teams-panel";
 import { ManagerTeamsForm } from "@/components/people/manager-teams-form";
 import { ActivityLog } from "@/components/shared/activity-log";
+import { TeamBadge } from "@/components/shared/team-badge";
 import { formatLabel } from "@/lib/one-on-ones/labels";
 import { Plus, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -106,7 +107,7 @@ export default async function PersonProfilePage({ params }: { params: Promise<{ 
                 <Row label="Avg. Participation (unofficial)" value={avgParticipation ? formatScore(avgParticipation * 20) : "—"} />
                 <Row label="Team / Project" value={person.teamMemberships?.length ? undefined : "—"} custom={
                   <div className="flex flex-wrap gap-1 justify-end">
-                    {person.teamMemberships.map((tm) => <Badge key={tm.teamId} variant="secondary">{tm.team.name}</Badge>)}
+                    {person.teamMemberships.map((tm) => <TeamBadge key={tm.teamId} name={tm.team.name} />)}
                   </div>
                 } />
                 <Row label="Skills" custom={

@@ -38,6 +38,8 @@ export interface EmployeeBankRow {
   assignedToOperationsAt: Date | null;
   operationsProjectId: string | null;
   operationsProjectName: string | null;
+  offboardingStatus: "NEGOTIATION_IN_PROGRESS" | "ESCALATED_TO_LEGAL" | "NEGOTIATION_FINISHED" | null;
+  offboardingSetAt: Date | null;
   score: number;
   trend: string;
   trendDelta: number | null;

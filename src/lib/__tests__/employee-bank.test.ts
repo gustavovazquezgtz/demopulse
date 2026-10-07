@@ -407,3 +407,87 @@ describe("assignedToOperations and its mirrored ProjectAssignment", () => {
     expect(row.projects.some((p) => p.id === project.id)).toBe(true);
   });
 });
+
+// Regression coverage for "Dar de alta" also moving the person onto the
+// "Operaciones" team (closing out their prior team memberships the same
+// way removeTeamMember does) — this is what makes them show up with the
+// green team badge and disappear from their old team's active roster.
+describe("assignToOperations moves the person onto the Operaciones team", () => {
+  let employee: { id: string };
+  let manager: { id: string };
+  let originalTeam: { id: string };
+  let opsTeam: { id: string };
+
+  beforeAll(async () => {
+    employee = await prisma.user.create({ data: { name: "Ops Team Move Fixture Dev", email: `ops-team-move-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    manager = await prisma.user.create({ data: { name: "Ops Team Move Fixture Manager", email: `ops-team-move-mgr-${Date.now()}@test.local`, role: "MANAGER" } });
+    originalTeam = await prisma.team.create({ data: { name: `Ops Team Move Fixture Original ${Date.now()}` } });
+    await prisma.teamMember.create({ data: { teamId: originalTeam.id, userId: employee.id } });
+
+    // Mirrors exactly what assignToOperations's getOrCreateOperationsTeam
+    // does — find the org's one "Operaciones" team, or create it.
+    opsTeam = (await prisma.team.findFirst({ where: { name: "Operaciones" } }))
+      ?? (await prisma.team.create({ data: { name: "Operaciones", managers: { create: [{ userId: manager.id }] } } }));
+
+    const current = await prisma.teamMember.findMany({ where: { userId: employee.id, leftAt: null } });
+    for (const m of current) await prisma.teamMember.update({ where: { id: m.id }, data: { leftAt: new Date() } });
+    await prisma.teamMember.create({ data: { teamId: opsTeam.id, userId: employee.id } });
+    await prisma.employeeBankProfile.create({ data: { userId: employee.id, assignedToOperations: true, assignedToOperationsAt: new Date() } });
+  });
+
+  afterAll(async () => {
+    await prisma.employeeBankProfile.deleteMany({ where: { userId: employee.id } });
+    await prisma.teamMember.deleteMany({ where: { userId: employee.id } });
+    await prisma.team.delete({ where: { id: originalTeam.id } });
+    await prisma.user.deleteMany({ where: { id: { in: [employee.id, manager.id] } } });
+    // Leave the shared "Operaciones" team in place — other tests/production
+    // reuse the same singleton team by name.
+  });
+
+  it("shows Operaciones (not the old team) as this person's current team", async () => {
+    const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
+    const rows = await getEmployeeBankRows(UNSCOPED);
+    const row = rows.find((r) => r.id === employee.id)!;
+    expect(row.teams.map((t) => t.name)).toEqual(["Operaciones"]);
+  });
+
+  it("no longer counts toward the original team's active membership", async () => {
+    const membership = await prisma.teamMember.findFirst({ where: { teamId: originalTeam.id, userId: employee.id, leftAt: null } });
+    expect(membership).toBeNull();
+  });
+});
+
+// Regression coverage for "Dar de baja": the three Spanish-labeled
+// offboarding statuses must round-trip through the query layer and be
+// independently filterable from the Operations flag.
+describe("offboardingStatus", () => {
+  let employee: { id: string };
+
+  beforeAll(async () => {
+    employee = await prisma.user.create({ data: { name: "Offboarding Fixture Dev", email: `offboarding-${Date.now()}@test.local`, role: "DEVELOPER" } });
+    await prisma.employeeBankProfile.create({
+      data: { userId: employee.id, offboardingStatus: "ESCALATED_TO_LEGAL", offboardingSetAt: new Date() },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.employeeBankProfile.deleteMany({ where: { userId: employee.id } });
+    await prisma.user.delete({ where: { id: employee.id } });
+  });
+
+  it("surfaces the offboarding status and timestamp through getEmployeeBankRows", async () => {
+    const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
+    const rows = await getEmployeeBankRows(UNSCOPED);
+    const row = rows.find((r) => r.id === employee.id)!;
+    expect(row.offboardingStatus).toBe("ESCALATED_TO_LEGAL");
+    expect(row.offboardingSetAt).not.toBeNull();
+  });
+
+  it("is independent of assignedToOperations — someone can be neither, either, or both", async () => {
+    const { getEmployeeBankRows } = await import("@/lib/queries/employee-bank");
+    const rows = await getEmployeeBankRows(UNSCOPED);
+    const row = rows.find((r) => r.id === employee.id)!;
+    expect(row.offboardingStatus).toBe("ESCALATED_TO_LEGAL");
+    expect(row.assignedToOperations).toBe(false);
+  });
+});

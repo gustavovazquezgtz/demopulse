@@ -3,9 +3,9 @@ import { requireSession } from "@/lib/permissions";
 import { UNSCOPED } from "@/lib/queries/dashboard";
 import { getRanking } from "@/lib/queries/ranking";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScoreBadge, TrendIndicator } from "@/components/dashboard/score-badge";
+import { TeamBadge } from "@/components/shared/team-badge";
 import { SortableHeader } from "@/components/ui/sortable-header";
 import { formatScore, cn } from "@/lib/utils";
 
@@ -90,7 +90,7 @@ export default async function RankingPage({
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {r.teams.map((t) => <Badge key={t} variant="secondary">{t}</Badge>)}
+                      {r.teams.map((t) => <TeamBadge key={t} name={t} />)}
                     </div>
                   </TableCell>
                   <TableCell className="text-xs">

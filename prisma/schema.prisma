@@ -205,6 +205,13 @@ enum InterviewNonAttendanceReason {
   OTHER
 }
 
+// "Dar de baja" — an offboarding/exit in progress.
+enum OffboardingStatus {
+  NEGOTIATION_IN_PROGRESS // "Baja - Negociación en proceso"
+  ESCALATED_TO_LEGAL // "Baja - Escaló a Legal"
+  NEGOTIATION_FINISHED // "Baja - Negociación terminada"
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // People / Org structure
 // ─────────────────────────────────────────────────────────────────────────
@@ -812,10 +819,18 @@ model EmployeeBankProfile {
   // "Dar de alta" — this person was placed on a real client account. When
   // operationsProjectId is set, a matching ProjectAssignment is created so
   // this shows up consistently everywhere else in the app (People,
-  // Ranking, Team rosters) — this flag never exists only here.
+  // Ranking, Team rosters) — this flag never exists only here. The
+  // assignToOperations action also moves them onto the "Operaciones" team
+  // (ending their prior internal team memberships), which is what makes
+  // them show up with the green "Operaciones" team badge everywhere.
   assignedToOperations   Boolean   @default(false)
   assignedToOperationsAt DateTime?
   operationsProjectId    String?
+  // "Dar de baja" — an offboarding/exit in progress. Independent of
+  // assignedToOperations: someone can be mid-exit-negotiation while still
+  // formally on an account, or never having been on one at all.
+  offboardingStatus      OffboardingStatus?
+  offboardingSetAt       DateTime?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 

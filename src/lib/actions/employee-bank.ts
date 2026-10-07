@@ -7,6 +7,25 @@ import { requireSession } from "@/lib/permissions";
 import { getGroupThresholds } from "@/lib/queries/app-settings";
 import { getEmployeeBankProfile, getEmployeeScores } from "@/lib/queries/employee-bank";
 import { suggestGroup } from "@/lib/employee-bank/scoring";
+import { OPERATIONS_TEAM_NAME } from "@/lib/employee-bank/labels";
+
+/** Finds the org's single "Operaciones" team, creating it (with whichever
+ * manager is performing the first-ever "Dar de alta") if it doesn't exist
+ * yet. Deliberately NOT created via the normal createTeam action — this is
+ * an internal bucket for people placed on client accounts, not a delivery
+ * team with its own matching Project. */
+async function getOrCreateOperationsTeam(managerId: string) {
+  const existing = await prisma.team.findFirst({ where: { name: OPERATIONS_TEAM_NAME } });
+  if (existing) return existing;
+  return prisma.team.create({
+    data: {
+      name: OPERATIONS_TEAM_NAME,
+      description: "Engineers placed on client accounts via Employee Bank's \"Dar de alta\" — outside the internal delivery teams.",
+      managers: { create: [{ userId: managerId }] },
+      managerHistory: { create: [{ managerId }] },
+    },
+  });
+}
 
 /** RPC-style fetch used by the client-side drawer to load full detail
  * on demand (row data in the grid already has the summary). */
@@ -100,8 +119,11 @@ export async function addEmployeeNote(userId: string, type: string, text: string
  * When a project is given, mirrors a real ProjectAssignment the same way
  * addTeamMember does (first active assignment becomes primary) so this
  * shows up consistently in People/Ranking/Team rosters, not just here.
- * Also bumps availability to FULLY_ALLOCATED — being staffed on an
- * account is, by definition, no longer "available."
+ * Also bumps availability to FULLY_ALLOCATED, and moves them onto the
+ * "Operaciones" team — ending their prior internal team memberships the
+ * same way removeTeamMember does (closed with leftAt, never deleted) —
+ * which is what makes them show up with the green "Operaciones" badge and
+ * disappear from their old teams' active rosters.
  */
 export async function assignToOperations(userId: string, projectId?: string) {
   const session = await requireSession();
@@ -122,12 +144,23 @@ export async function assignToOperations(userId: string, projectId?: string) {
     });
   }
 
+  const opsTeam = await getOrCreateOperationsTeam(session.user.id);
+  const currentMemberships = await prisma.teamMember.findMany({ where: { userId, leftAt: null } });
+  for (const m of currentMemberships) {
+    if (m.teamId !== opsTeam.id) await prisma.teamMember.update({ where: { id: m.id }, data: { leftAt: now } });
+  }
+  if (!currentMemberships.some((m) => m.teamId === opsTeam.id)) {
+    await prisma.teamMember.create({ data: { teamId: opsTeam.id, userId, joinedAt: now } });
+  }
+
   await prisma.auditLog.create({
     data: { userId: session.user.id, entityType: "User", entityId: userId, action: "ASSIGNED_TO_OPERATIONS", after: { projectId: projectId || null } },
   });
 
   revalidatePath("/employee-bank");
+  revalidatePath("/people");
   revalidatePath(`/people/${userId}`);
+  revalidatePath("/ranking");
 }
 
 export async function unassignFromOperations(userId: string) {
@@ -138,8 +171,46 @@ export async function unassignFromOperations(userId: string) {
     data: { assignedToOperations: false, assignedToOperationsAt: null, operationsProjectId: null },
   });
 
+  const opsTeam = await prisma.team.findFirst({ where: { name: OPERATIONS_TEAM_NAME } });
+  if (opsTeam) {
+    await prisma.teamMember.updateMany({ where: { teamId: opsTeam.id, userId, leftAt: null }, data: { leftAt: new Date() } });
+  }
+
   await prisma.auditLog.create({
     data: { userId: session.user.id, entityType: "User", entityId: userId, action: "UNASSIGNED_FROM_OPERATIONS" },
+  });
+
+  revalidatePath("/employee-bank");
+  revalidatePath("/people");
+  revalidatePath(`/people/${userId}`);
+  revalidatePath("/ranking");
+}
+
+/** "Dar de baja" — sets or clears the offboarding/exit status. */
+export async function setOffboardingStatus(userId: string, status: "NEGOTIATION_IN_PROGRESS" | "ESCALATED_TO_LEGAL" | "NEGOTIATION_FINISHED") {
+  const session = await requireSession();
+
+  await prisma.employeeBankProfile.upsert({
+    where: { userId },
+    update: { offboardingStatus: status, offboardingSetAt: new Date() },
+    create: { userId, offboardingStatus: status, offboardingSetAt: new Date() },
+  });
+
+  await prisma.auditLog.create({
+    data: { userId: session.user.id, entityType: "User", entityId: userId, action: "OFFBOARDING_STATUS_CHANGED", after: { status } },
+  });
+
+  revalidatePath("/employee-bank");
+  revalidatePath(`/people/${userId}`);
+}
+
+export async function clearOffboardingStatus(userId: string) {
+  const session = await requireSession();
+
+  await prisma.employeeBankProfile.update({ where: { userId }, data: { offboardingStatus: null, offboardingSetAt: null } });
+
+  await prisma.auditLog.create({
+    data: { userId: session.user.id, entityType: "User", entityId: userId, action: "OFFBOARDING_STATUS_CLEARED" },
   });
 
   revalidatePath("/employee-bank");

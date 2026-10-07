@@ -62,6 +62,20 @@ export function interviewResultTone(result: string): "positive" | "critical" {
   return result === "WENT_WELL" ? "positive" : "critical";
 }
 
+export const OPERATIONS_TEAM_NAME = "Operaciones";
+
+export const OFFBOARDING_STATUS_OPTIONS = ["NEGOTIATION_IN_PROGRESS", "ESCALATED_TO_LEGAL", "NEGOTIATION_FINISHED"] as const;
+
+const OFFBOARDING_STATUS_LABELS: Record<string, string> = {
+  NEGOTIATION_IN_PROGRESS: "Baja - Negociación en proceso",
+  ESCALATED_TO_LEGAL: "Baja - Escaló a Legal",
+  NEGOTIATION_FINISHED: "Baja - Negociación terminada",
+};
+
+export function offboardingStatusLabel(status: string): string {
+  return OFFBOARDING_STATUS_LABELS[status] ?? status;
+}
+
 export function requiresOutcomeReasonLabel(status: string): string {
   return `Moving to "${enumLabel(status)}" requires an outcome reason — this is how we learn why prospects don't materialize.`;
 }
